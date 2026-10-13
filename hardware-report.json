@@ -1,0 +1,86 @@
+{
+  "checks": [
+    {
+      "name": "boot descriptor through SWD",
+      "passed": true
+    },
+    {
+      "name": "bootloader UART identity",
+      "passed": true
+    },
+    {
+      "name": "BEGIN rejected size=4136961 id=1",
+      "passed": true
+    },
+    {
+      "name": "BEGIN rejected size=0 id=1",
+      "passed": true
+    },
+    {
+      "name": "BEGIN rejected size=2048 id=99",
+      "passed": true
+    },
+    {
+      "name": "incomplete upload cannot start",
+      "passed": true
+    },
+    {
+      "name": "reset after aborted upload remains in recovery",
+      "passed": true
+    },
+    {
+      "name": "Duello started after custom bootloader upload",
+      "passed": true
+    },
+    {
+      "name": "cannot fire before drawing",
+      "passed": true
+    },
+    {
+      "name": "draw command accepted",
+      "passed": true
+    },
+    {
+      "name": "draw animation completes",
+      "passed": true
+    },
+    {
+      "name": "fire changes ammo and target state",
+      "passed": true
+    },
+    {
+      "name": "busy animation rejects second action",
+      "passed": true
+    },
+    {
+      "name": "reload completes",
+      "passed": true
+    },
+    {
+      "name": "holster animation completes",
+      "passed": true
+    },
+    {
+      "name": "disconnect timeout stops walking",
+      "passed": true
+    },
+    {
+      "name": "scene reset",
+      "passed": true
+    },
+    {
+      "name": "Smartwatch restored through custom bootloader",
+      "passed": true
+    },
+    {
+      "name": "normal reset auto-starts Smartwatch",
+      "passed": true
+    },
+    {
+      "name": "16 KiB settings journal preserved byte for byte",
+      "passed": true
+    }
+  ],
+  "settings_sha256": "efae780b22de4d65208712116c584539e4c0a74a139b98866053df66ee345d0b",
+  "passed": true
+}
