@@ -71,7 +71,7 @@ class Runner:
                         latest=self.device.runtime('STATUS',timeout=.5)
                         if latest.get('state',{}).get('fresh') is not False:
                             raise ProtocolError('Veri eskime koruması çalışmadı')
-                        self.emit({'response':latest,'seconds':world.seconds,'gap':world.gap,'rtt_ms':0,'cycle':self.cycle,'overruns':self.overruns,'collision':False,'data_pause':True})
+                        self.emit({'response':latest,'seconds':world.seconds,'gap':world.gap,'rtt_ms':0,'cycle':self.cycle,'overruns':self.overruns,'collision':False,'data_pause':True,'present':world.present})
                         if self.stop.wait(.5):break
                     started=time.monotonic()
                     latest=self.device.runtime(world.command(),timeout=.6)
@@ -87,11 +87,11 @@ class Runner:
                              mode=state.get('mode'),rtt_ms=round(rtt,2),gpu=state.get('gpu'),frames=state.get('frames'))
                     self.rows.append(row)
                     self.emit({'response':latest,'seconds':world.seconds,'gap':world.gap,'rtt_ms':rtt,
-                               'cycle':self.cycle,'overruns':self.overruns,'collision':world.collision,'data_pause':False})
+                               'cycle':self.cycle,'overruns':self.overruns,'collision':world.collision,'data_pause':False,'present':world.present})
                     world.advance(acceleration/100)
                     if world.collision:
                         self.emit({'response':latest,'seconds':world.seconds,'gap':0.,'rtt_ms':rtt,
-                                   'cycle':self.cycle,'overruns':self.overruns,'collision':True,'data_pause':False})
+                                   'cycle':self.cycle,'overruns':self.overruns,'collision':True,'data_pause':False,'present':world.present})
                         return latest
                     # Fixed simulated steps; missed wall-clock deadlines slow the experiment.
                     # No catch-up burst and no unacknowledged stale acceleration extrapolation.
