@@ -12,7 +12,11 @@ BOOT_INFO=0x08007F00
 
 def find_programmer():
     candidates=[]
-    if os.environ.get('STM32_PROGRAMMER_CLI'): candidates.append(Path(os.environ['STM32_PROGRAMMER_CLI']))
+    if os.environ.get('STM32_PROGRAMMER_CLI'):
+        explicit=Path(os.environ['STM32_PROGRAMMER_CLI'])
+        if explicit.is_file():return explicit
+        raise FileNotFoundError('STM32_PROGRAMMER_CLI dosyasi bulunamadi: '+str(explicit))
+    candidates+=list(Path('/Applications/STM32CubeIDE.app/Contents/Eclipse/plugins').glob('*cubeprogrammer*/tools/bin/STM32_Programmer_CLI'))
     candidates+=list(Path('C:/ST').glob('STM32CubeIDE_*/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.cubeprogrammer.win32_*/tools/bin/STM32_Programmer_CLI.exe'))
     candidates.append(Path('C:/Program Files/STMicroelectronics/STM32Cube/STM32CubeProgrammer/bin/STM32_Programmer_CLI.exe'))
     for p in reversed(candidates):
@@ -37,9 +41,10 @@ def inspect(serial_number=None,log=lambda s:None):
         execute(connection(serial_number)+['-u',hex(BOOT_INFO),32,target],log=log)
         data=target.read_bytes()
         if len(data)!=32: raise ProtocolError('Bootloader kimligi okunamadi')
-        magic,version,base,size,protocol,board,baud,_=struct.unpack('<8I',data)
+        magic,version,base,size,protocol,board,baud,max_app_id=struct.unpack('<8I',data)
         present=(magic,base,size,protocol,board)==(0x44425631,APP_BASE,APP_MAX,1,0x481)
-        return {'installed':present,'version':version if present else None,'baud':baud if present else None}
+        return {'installed':present,'version':version if present else None,'baud':baud if present else None,
+                'max_app_id':(max_app_id or 2) if present else None}
 
 def install(binary,backup_dir,serial_number=None,log=lambda s:None):
     binary=Path(binary).resolve();data=binary.read_bytes()
@@ -60,4 +65,4 @@ def install(binary,backup_dir,serial_number=None,log=lambda s:None):
     (folder/'sha256.txt').write_text(hashlib.sha256(backup.read_bytes()).hexdigest()+'\n',encoding='ascii')
     # Only boot+metadata pages are erased; application and settings pages remain untouched.
     execute(connection(serial_number,'UR')+['-e','0','1','2','3','4','-d',binary,'0x08000000','-v','-rst','-g','0x08000000'],log=log)
-    return {'installed':True,'version':1,'backup':str(backup)}
+    return {'installed':True,'version':struct.unpack_from('<I',data,0x7f04)[0],'backup':str(backup)}
