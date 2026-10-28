@@ -17,7 +17,8 @@ ApplicationWindow {
     font.family: Qt.platform.os === "osx" ? "Helvetica Neue" : "Segoe UI"
     font.pixelSize: 13
     property var s: window.studio ? window.studio.state : ({page:"adas", connected:false, busy:false, running:false, operation:"idle", portIndex:-1})
-    readonly property var t: window.s.telemetry || ({})
+    readonly property var l: window.studio ? window.studio.liveState : ({})
+    readonly property var t: window.l.telemetry || ({})
     readonly property bool hasMeasurements: window.s.connected && window.s.app === "ADASLab" && window.t.mode !== "WAITING"
     readonly property color textColor: "#e5edf3"
     readonly property color mutedColor: "#8b9eae"
@@ -32,12 +33,12 @@ ApplicationWindow {
         return ({adas:"ADASLab",firmware:"Firmware yönetimi",duello:"Düello",console:"Komut konsolu"})[window.s.page] || "ADASLab"
     }
     function scenarioIndex() {
-        var list = window.s.scenarios || []
+        var list = window.studio.scenarios || []
         for (var i = 0; i < list.length; i++) if (list[i].value === window.s.scenario) return i
         return 0
     }
     function scenarioDescription() {
-        var list = window.s.scenarios || [], index = scenarioIndex()
+        var list = window.studio.scenarios || [], index = scenarioIndex()
         return list.length ? list[index].description : ""
     }
     onClosing: function(close) { close.accepted = window.studio.requestClose() }
@@ -166,6 +167,7 @@ ApplicationWindow {
                     delegate: ItemDelegate {
                         id: navItem
                         required property var modelData
+                        objectName: "nav_" + modelData.page
                         Layout.fillWidth: true
                         implicitHeight: 57
                         hoverEnabled: true
@@ -220,7 +222,7 @@ ApplicationWindow {
                         id: portBox
                         objectName: "portSelector"
                         Layout.preferredWidth: window.width > 1210 ? 244 : 187
-                        model: window.s.ports || []; textRole: "label"
+                        model: window.studio.ports; textRole: "label"
                         currentIndex: window.s.portIndex === undefined ? -1 : window.s.portIndex
                         enabled: !window.s.busy && !window.s.connected
                         onActivated: function(index) { window.studio.selectPort(index) }
@@ -267,7 +269,7 @@ ApplicationWindow {
                                     SelectBox {
                                         objectName: "scenarioSelector"
                                         Layout.fillWidth: true
-                                        model: window.s.scenarios || []; textRole: "text"; currentIndex: window.scenarioIndex()
+                                        model: window.studio.scenarios; textRole: "text"; currentIndex: window.scenarioIndex()
                                         enabled: !window.s.busy
                                         onActivated: function(index) { window.studio.setOption("scenario", window.s.scenarios[index].value) }
                                     }
@@ -327,9 +329,9 @@ ApplicationWindow {
                                     LabelText { text: "Takip mesafesi"; font.pixelSize: 13; font.weight: Font.DemiBold }
                                     LabelText { text: "Son 200 görünüm · metre"; color: "#70899b"; font.pixelSize: 11; Layout.leftMargin: 6 }
                                     Item { Layout.fillWidth: true }
-                                    ActionButton { text: "CSV kaydet"; implicitHeight: 30; enabled: !window.s.running && (window.s.history || []).length > 0; onClicked: window.studio.exportCsv() }
+                                    ActionButton { text: "CSV kaydet"; implicitHeight: 30; enabled: !window.s.running && (window.l.history || []).length > 0; onClicked: window.studio.exportCsv() }
                                 }
-                                TrendChart { Layout.fillWidth: true; Layout.fillHeight: true; history: window.s.history || []; fontFamily: window.font.family }
+                                TrendChart { Layout.fillWidth: true; Layout.fillHeight: true; history: window.l.history || []; fontFamily: window.font.family }
                             }
                         }
                         RowLayout {
@@ -429,10 +431,10 @@ ApplicationWindow {
                             Layout.fillWidth: true; Layout.preferredHeight: 154
                             RowLayout {
                                 anchors.fill: parent; anchors.margins: 25; spacing: 35
-                                Metric { label: "SİLAH"; value: window.s.app !== "Duello" ? "—" : (window.s.duello || {}).gun === "drawn" ? "Hazır" : "Yerinde"; note: "Karakter kart ekranında görünür"; Layout.fillWidth: true }
-                                Metric { label: "MERMİ"; value: window.s.app !== "Duello" ? "—" : String((window.s.duello || {}).ammo); unit: "/ 6"; Layout.fillWidth: true }
-                                Metric { label: "HEDEF"; value: window.s.app !== "Duello" ? "—" : String((window.s.duello || {}).targetHp); unit: "/ 3"; Layout.fillWidth: true }
-                                Metric { label: "EYLEM"; value: window.s.app !== "Duello" ? "—" : ({idle:"Hazır",draw:"Çıkarılıyor",holster:"Yerleşiyor",fire:"Ateş",reload:"Doluyor"})[(window.s.duello || {}).action] || "Bekliyor"; Layout.fillWidth: true }
+                                Metric { label: "SİLAH"; value: window.s.app !== "Duello" ? "—" : (window.l.duello || {}).gun === "drawn" ? "Hazır" : "Yerinde"; note: "Karakter kart ekranında görünür"; Layout.fillWidth: true }
+                                Metric { label: "MERMİ"; value: window.s.app !== "Duello" ? "—" : String((window.l.duello || {}).ammo); unit: "/ 6"; Layout.fillWidth: true }
+                                Metric { label: "HEDEF"; value: window.s.app !== "Duello" ? "—" : String((window.l.duello || {}).targetHp); unit: "/ 3"; Layout.fillWidth: true }
+                                Metric { label: "EYLEM"; value: window.s.app !== "Duello" ? "—" : ({idle:"Hazır",draw:"Çıkarılıyor",holster:"Yerleşiyor",fire:"Ateş",reload:"Doluyor"})[(window.l.duello || {}).action] || "Bekliyor"; Layout.fillWidth: true }
                             }
                         }
                         Panel {
@@ -496,7 +498,7 @@ ApplicationWindow {
                                 LabelText { text: "Uygulama durumu"; font.pixelSize: 13; font.weight: Font.DemiBold }
                                 ScrollView {
                                     Layout.fillWidth: true; Layout.fillHeight: true; clip: true
-                                    TextArea { text: window.s.appState || "Cihaz bağlantısı bekleniyor."; readOnly: true; selectByMouse: true; wrapMode: TextEdit.Wrap; color: "#a6c7d6"; font.family: window.monoFont; font.pixelSize: 12; background: Item {} }
+                                    TextArea { text: window.l.appState || "Cihaz bağlantısı bekleniyor."; readOnly: true; selectByMouse: true; wrapMode: TextEdit.Wrap; color: "#a6c7d6"; font.family: window.monoFont; font.pixelSize: 12; background: Item {} }
                                 }
                             }
                         }

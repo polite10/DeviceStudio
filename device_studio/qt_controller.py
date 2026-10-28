@@ -5,6 +5,7 @@ publish plain values to queues; only the Qt thread changes properties. Closing
 an active job requests cancellation and waits for the owner's cleanup.
 """
 import csv
+from collections import deque
 from copy import deepcopy
 import json
 from pathlib import Path
@@ -47,6 +48,8 @@ def empty_telemetry():
 
 class StudioController(QObject):
     stateChanged = Signal()
+    liveChanged = Signal()
+    portsChanged = Signal()
     shutdownReady = Signal()
 
     def __init__(self, parent=None, *, device_factory=None, programmer_api=None,
@@ -60,6 +63,10 @@ class StudioController(QObject):
         self._firmware = None
         self._runner = None
         self._worker = None
+        self._active_operation = None
+        self._deferred = deque()
+        self._last_controls = None
+        self._last_live = None
         self._cancel = threading.Event()
         self._events = queue.Queue()
         self._snapshots = queue.Queue(maxsize=2)
@@ -99,8 +106,43 @@ class StudioController(QObject):
         # live device/model object or let workers mutate this map.
         return deepcopy(self._state)
 
+    @Property('QVariantMap', notify=liveChanged)
+    def liveState(self):
+        return {key: deepcopy(self._state[key]) for key in ('telemetry', 'history', 'appState', 'duello')}
+
+
+    @Property('QVariantList', notify=portsChanged)
+    def ports(self):
+        return deepcopy(self._state['ports'])
+
+
+    @Property('QVariantList', constant=True)
+    def scenarios(self):
+        return deepcopy(self._state['scenarios'])
+
+
     def _publish(self):
-        self.stateChanged.emit()
+        live = self.liveState
+        controls = {key: value for key, value in self._state.items()
+                    if key not in ('telemetry', 'history', 'appState', 'duello')}
+        if controls != self._last_controls:
+            self._last_controls = deepcopy(controls)
+            self.stateChanged.emit()
+        if live != self._last_live:
+            self._last_live = live
+            self.liveChanged.emit()
+
+    def _defer_if_heartbeat(self, action):
+        if self._active_operation == 'heartbeat' and not self._closing:
+            if len(self._deferred) < 16:
+                self._deferred.append(action)
+            return True
+        return False
+
+
+    def _run_deferred(self):
+        while self._deferred and self._worker is None and not self._closing:
+            self._deferred.popleft()()
 
     def _log(self, message):
         stamp = time.strftime('%H:%M:%S')
@@ -138,10 +180,12 @@ class StudioController(QObject):
                 self._events.put(('error', str(exc), None))
 
         self._worker = threading.Thread(target=work, name='studio-' + operation, daemon=True)
+        self._active_operation = operation
         # Reserve ownership before notifying QML: synchronous signal handlers
         # may request close/another action while stateChanged is delivered.
-        self._state.update(busy=True, operation=operation, running=operation == 'adas',
-                           cancellable=operation in ('adas', 'upload'))
+        if operation != 'heartbeat':
+            self._state.update(busy=True, operation=operation, running=operation == 'adas',
+                               cancellable=operation in ('adas', 'upload'))
         self._publish()
         self._worker.start()
         return True
@@ -182,10 +226,12 @@ class StudioController(QObject):
             elif kind == 'log':
                 self._log(value)
             else:
-                operation = self._state['operation']
+                operation = self._active_operation
                 # The result is enqueued after fn's finally has released UART.
                 self._worker = None
-                self._state.update(busy=False, running=False, operation='idle', cancellable=False)
+                self._active_operation = None
+                if operation != 'heartbeat':
+                    self._state.update(busy=False, running=False, operation='idle', cancellable=False)
                 if kind == 'error':
                     cancelled = self._cancel.is_set() and operation == 'upload'
                     self._drop_device()
@@ -205,6 +251,8 @@ class StudioController(QObject):
                             self._apply_response(current)
                 if self._closing:
                     self._finish_close()
+                else:
+                    self._run_deferred()
         if changed:
             self._publish()
 
@@ -292,12 +340,16 @@ class StudioController(QObject):
 
     @Slot(int)
     def selectPort(self, index):
+        if self._defer_if_heartbeat(lambda: self.selectPort(index)):
+            return
         if self._idle() and not self._state['connected'] and 0 <= index < len(self._state['ports']):
             self._state['portIndex'] = index
             self._publish()
 
     @Slot()
     def refreshPorts(self):
+        if self._defer_if_heartbeat(self.refreshPorts):
+            return
         if not self._idle():
             return
         old = self._state['ports']
@@ -308,10 +360,14 @@ class StudioController(QObject):
         if index < 0:
             index = next((i for i, p in enumerate(ports) if 'STLINK' in p['label'].upper().replace('-', '')), 0 if ports else -1)
         self._state.update(ports=ports, portIndex=index)
+        if old != ports:
+            self.portsChanged.emit()
         self._publish()
 
     @Slot()
     def connectDevice(self):
+        if self._defer_if_heartbeat(self.connectDevice):
+            return
         if not self._idle():
             return
         index = self._state['portIndex']
@@ -342,12 +398,16 @@ class StudioController(QObject):
 
     @Slot()
     def disconnectDevice(self):
+        if self._defer_if_heartbeat(self.disconnectDevice):
+            return
         if self._idle():
             self._drop_device()
             self._message('Bağlantı kesildi.')
 
     @Slot()
     def chooseFirmware(self):
+        if self._defer_if_heartbeat(self.chooseFirmware):
+            return
         if self._idle():
             path, _ = QFileDialog.getOpenFileName(None, 'Firmware paketi seç', str(ROOT / 'Firmware'), 'Device firmware (*.dfw)')
             if path:
@@ -355,6 +415,8 @@ class StudioController(QObject):
 
     @Slot(str)
     def loadFirmware(self, path):
+        if self._defer_if_heartbeat(lambda: self.loadFirmware(path)):
+            return
         if not self._idle():
             return
         self._firmware = None
@@ -378,6 +440,8 @@ class StudioController(QObject):
 
     @Slot()
     def requestUpload(self):
+        if self._defer_if_heartbeat(self.requestUpload):
+            return
         if not self._require_device():
             return
         if self._arm_sim:
@@ -391,6 +455,8 @@ class StudioController(QObject):
 
     @Slot()
     def requestInstallBootloader(self):
+        if self._defer_if_heartbeat(self.requestInstallBootloader):
+            return
         if not self._idle():
             return
         if self._arm_sim:
@@ -402,6 +468,8 @@ class StudioController(QObject):
 
     @Slot(str)
     def loadBootloader(self, path):
+        if self._defer_if_heartbeat(lambda: self.loadBootloader(path)):
+            return
         if not self._idle() or self._arm_sim:
             return
         try:
@@ -450,6 +518,8 @@ class StudioController(QObject):
 
     @Slot()
     def inspectBootloader(self):
+        if self._defer_if_heartbeat(self.inspectBootloader):
+            return
         if not self._idle():
             return
         if self._arm_sim:
@@ -468,16 +538,22 @@ class StudioController(QObject):
 
     @Slot()
     def enterBootloader(self):
+        if self._defer_if_heartbeat(self.enterBootloader):
+            return
         if self._require_device():
             self._job('command', self._device.enter_boot, lambda r: self._apply_response(r, route=True))
 
     @Slot()
     def runApplication(self):
+        if self._defer_if_heartbeat(self.runApplication):
+            return
         if self._require_device():
             self._job('command', self._device.run, lambda r: self._apply_response(r, route=True))
 
     @Slot(str)
     def sendCommand(self, text):
+        if self._defer_if_heartbeat(lambda: self.sendCommand(text)):
+            return
         if not self._require_device(runtime=True):
             return
         text = text.strip()
@@ -496,6 +572,8 @@ class StudioController(QObject):
 
     @Slot(str, 'QVariant')
     def setOption(self, key, value):
+        if self._defer_if_heartbeat(lambda: self.setOption(key, value)):
+            return
         if not self._idle():
             return
         if hasattr(value, 'toVariant'):
@@ -523,6 +601,8 @@ class StudioController(QObject):
 
     @Slot()
     def startExperiment(self):
+        if self._defer_if_heartbeat(self.startExperiment):
+            return
         if not self._require_device(runtime=True):
             return
         if self._state['app'] != 'ADASLab':
@@ -551,6 +631,8 @@ class StudioController(QObject):
 
     @Slot()
     def exportCsv(self):
+        if self._defer_if_heartbeat(self.exportCsv):
+            return
         if not self._idle():
             return
         if not self._runner or not self._runner.rows:
@@ -582,6 +664,7 @@ class StudioController(QObject):
     @Slot(result=bool)
     def requestClose(self):
         self._closing = True
+        self._deferred.clear()
         self._pending = None
         self._heartbeat_timer.stop()
         if self._worker is not None:
