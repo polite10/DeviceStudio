@@ -30,7 +30,7 @@ ApplicationWindow {
 
     function number(value, precision) { return Number(value || 0).toFixed(precision) }
     function pageTitle() {
-        return ({adas:"ADASLab",firmware:"Firmware yönetimi",duello:"Düello",console:"Komut konsolu"})[window.s.page] || "ADASLab"
+        return ({game:"Trafik oyunu",adas:"ADASLab",firmware:"Firmware yönetimi",duello:"Düello",console:"Komut konsolu"})[window.s.page] || "ADASLab"
     }
     function scenarioIndex() {
         var list = window.studio.scenarios || []
@@ -41,6 +41,7 @@ ApplicationWindow {
         var list = window.studio.scenarios || [], index = scenarioIndex()
         return list.length ? list[index].description : ""
     }
+    onActiveChanged: if (window.studio) window.studio.setWindowActive(active)
     onClosing: function(close) { close.accepted = window.studio.requestClose() }
 
     component Panel: Rectangle {
@@ -159,6 +160,7 @@ ApplicationWindow {
                 Text { text: "ÇALIŞMA ALANI"; color: "#647d8f"; font.family: window.font.family; font.pixelSize: 11; font.letterSpacing: 1.5; Layout.bottomMargin: 8 }
                 Repeater {
                     model: [
+                        {page:"game",title:"Trafik oyunu",subtitle:"Klavyeyle sürüş",symbol:"G"},
                         {page:"adas",title:"ADASLab",subtitle:"Sürüş deneyleri",symbol:"A"},
                         {page:"firmware",title:"Firmware",subtitle:"Yükleme ve kurtarma",symbol:"F"},
                         {page:"duello",title:"Düello",subtitle:"Karakter kontrolü",symbol:"D"},
@@ -216,7 +218,7 @@ ApplicationWindow {
                         objectName: "pageTitleColumn"
                         Layout.fillWidth: true; Layout.fillHeight: true; Layout.maximumWidth: 100000
                         Text { objectName: "pageTitle"; y: window.width > 1210 ? 17 : 27; text: window.pageTitle(); color: window.textColor; font.family: window.font.family; font.pixelSize: 23; font.weight: Font.DemiBold }
-                        Text { y: 50; visible: window.width > 1210; text: window.s.page === "adas" ? "Sürüş destek sistemlerini gözlemleyin ve sınayın." : window.s.page === "firmware" ? "Firmware paketleri ve bootloader yönetimi." : window.s.page === "duello" ? "Kart üzerindeki karakteri gerçek zamanlı yönetin." : "Uygulama komutları ve cihazın JSON durumu."; color: window.mutedColor; font.family: window.font.family; font.pixelSize: 11 }
+                        Text { y: 50; visible: window.width > 1210; text: window.s.page === "game" ? "Direksiyon sizde. ADAS desteğini üç modda deneyin." : window.s.page === "adas" ? "Sürüş destek sistemlerini gözlemleyin ve sınayın." : window.s.page === "firmware" ? "Firmware paketleri ve bootloader yönetimi." : window.s.page === "duello" ? "Kart üzerindeki karakteri gerçek zamanlı yönetin." : "Uygulama komutları ve cihazın JSON durumu."; color: window.mutedColor; font.family: window.font.family; font.pixelSize: 11 }
                     }
                     SelectBox {
                         id: portBox
@@ -248,6 +250,7 @@ ApplicationWindow {
                 ColumnLayout {
                     width: pageScroll.availableWidth
                     spacing: 22
+                    GameView { Layout.fillWidth: true; studio: window.studio; visible: window.s.page === "game" }
 
                     ColumnLayout {
                         visible: window.s.page === "adas"

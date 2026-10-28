@@ -21,6 +21,7 @@ import serial.tools.list_ports
 from .connection import Device
 from .protocol import Firmware, ProtocolError
 from .adas_sim import Config, Runner, SCENARIOS
+from .game_sim import GameConfig, GameRunner, DriverInput, MODES, MODE_NAMES
 from . import programmer
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,6 +51,7 @@ class StudioController(QObject):
     stateChanged = Signal()
     liveChanged = Signal()
     portsChanged = Signal()
+    gameChanged = Signal()
     shutdownReady = Signal()
 
     def __init__(self, parent=None, *, device_factory=None, programmer_api=None,
@@ -67,6 +69,18 @@ class StudioController(QObject):
         self._deferred = deque()
         self._last_controls = None
         self._last_live = None
+        self._last_game = None
+        self._game_runner = None
+        self._game_world = None
+        self._game_inputs = DriverInput()
+        self._window_active = True
+        self._game = dict(connected=False, ready=False, running=False, mode='active', accEnabled=False,
+                          targetKmh=90, headwayMs=1800, seed=42, status='ready',
+                          hint='ADASLab v2 firmware’ine bağlanın. WASD veya yön tuşlarıyla sürün.',
+                          elapsed=0., remaining=120., distance=0., egoKmh=0., egoLane=1., targetLane=1,
+                          accelMps2=0., ttc=-1., gap=-1., warning=False, aeb=False, traffic=[],
+                          score=0, collisions=0, nearMisses=0, warnings=0, interventions=0,
+                          reactionMs=-1, results=[], rttMs=0., overruns=0, devicePanel=False)
         self._cancel = threading.Event()
         self._events = queue.Queue()
         self._snapshots = queue.Queue(maxsize=2)
@@ -75,7 +89,7 @@ class StudioController(QObject):
         self._last_live_write = 0.
         self._write_live = start_timers
         self._state = dict(
-            page='adas', ports=[], portIndex=-1, connected=False, busy=False,
+            page='game', ports=[], portIndex=-1, connected=False, busy=False,
             running=False, operation='idle', cancellable=False, app='', appVersion='',
             bootText='Henüz kontrol edilmedi', connectionText='Bağlantı bekleniyor',
             backendLabel='ARM simülasyonu' if arm_sim else 'STM32 · USB / UART',
@@ -110,16 +124,17 @@ class StudioController(QObject):
     def liveState(self):
         return {key: deepcopy(self._state[key]) for key in ('telemetry', 'history', 'appState', 'duello')}
 
+    @Property('QVariantMap', notify=gameChanged)
+    def gameState(self):
+        return deepcopy(self._game)
 
     @Property('QVariantList', notify=portsChanged)
     def ports(self):
         return deepcopy(self._state['ports'])
 
-
     @Property('QVariantList', constant=True)
     def scenarios(self):
         return deepcopy(self._state['scenarios'])
-
 
     def _publish(self):
         live = self.liveState
@@ -131,6 +146,9 @@ class StudioController(QObject):
         if live != self._last_live:
             self._last_live = live
             self.liveChanged.emit()
+        if self._game != self._last_game:
+            self._last_game = deepcopy(self._game)
+            self.gameChanged.emit()
 
     def _defer_if_heartbeat(self, action):
         if self._active_operation == 'heartbeat' and not self._closing:
@@ -138,7 +156,6 @@ class StudioController(QObject):
                 self._deferred.append(action)
             return True
         return False
-
 
     def _run_deferred(self):
         while self._deferred and self._worker is None and not self._closing:
@@ -184,8 +201,8 @@ class StudioController(QObject):
         # Reserve ownership before notifying QML: synchronous signal handlers
         # may request close/another action while stateChanged is delivered.
         if operation != 'heartbeat':
-            self._state.update(busy=True, operation=operation, running=operation == 'adas',
-                               cancellable=operation in ('adas', 'upload'))
+            self._state.update(busy=True, operation=operation, running=operation in ('adas', 'game'),
+                               cancellable=operation in ('adas', 'game', 'upload'))
         self._publish()
         self._worker.start()
         return True
@@ -213,7 +230,10 @@ class StudioController(QObject):
             except queue.Empty:
                 break
         if latest:
-            self._apply_snapshot(latest)
+            if 'game' in latest:
+                self._apply_game_snapshot(latest)
+            else:
+                self._apply_snapshot(latest)
             changed = True
         for _ in range(150):
             try:
@@ -232,6 +252,8 @@ class StudioController(QObject):
                 self._active_operation = None
                 if operation != 'heartbeat':
                     self._state.update(busy=False, running=False, operation='idle', cancellable=False)
+                if operation == 'game':
+                    self._game['running'] = False
                 if kind == 'error':
                     cancelled = self._cancel.is_set() and operation == 'upload'
                     self._drop_device()
@@ -243,7 +265,7 @@ class StudioController(QObject):
                         self._apply_response(value)
                     if callback:
                         callback(value)
-                    if operation == 'adas':
+                    if operation in ('adas', 'game'):
                         # Runner sends PAUSE in its finally. Show that actual
                         # last response rather than its preceding live sample.
                         current = getattr(self._device, 'current', None)
@@ -262,6 +284,9 @@ class StudioController(QObject):
             return
         self._state.update(connected=True, app=app, appVersion=str(response.get('version', '')),
                            connectionText='Bağlı', appState=json.dumps(response.get('state', {}), ensure_ascii=False, indent=2))
+        self._game.update(connected=app == 'ADASLab', ready=app == 'ADASLab' and response.get('version', 0) >= 2)
+        self._game['hint'] = ('W / ↑ gaz · S / ↓ fren · A–D / ← → şerit · Boşluk duraklat' if self._game['ready']
+                              else 'Trafik oyunu için ADASLab v2 firmware’ini yükleyin.')
         if response.get('backend') == 'ARM_SIM':
             self._state['backendLabel'] = 'ARM simülasyonu · fiziksel kart kullanılmıyor'
         if app == 'DeviceBoot':
@@ -293,6 +318,36 @@ class StudioController(QObject):
         if route:
             self._state['page'] = {'ADASLab': 'adas', 'Duello': 'duello', 'Smartwatch': 'firmware',
                                    'DeviceBoot': 'firmware'}.get(app, 'console')
+            if app == 'ADASLab' and response.get('version', 0) >= 2:
+                self._state['page'] = 'game'
+
+    def _panel_response(self, response, *, allow_start=False):
+        panel = response.get('state', {})
+        if panel.get('error'):
+            self._message('Kart paneli: ' + str(panel['error']), 'warning')
+            return
+        if 'gmode' not in panel:
+            return
+        self._game['devicePanel'] = True
+        if not self._game['running']:
+            self._game.update(mode=MODE_NAMES.get(panel['gmode'], 'active'), accEnabled=bool(panel.get('gacc')),
+                              targetKmh=round(panel.get('gtarget', 2500) * .036), headwayMs=panel.get('gheadway', 1800))
+        if allow_start and panel.get('grun') and self._window_active and not self._closing and self._state['page'] == 'game':
+            QTimer.singleShot(0, self.startGame)
+
+    def _apply_game_snapshot(self, snapshot):
+        self._apply_response(snapshot['response'])
+        self._game.update(snapshot['game'], status=snapshot['status'])
+        self._game['running'] = self._active_operation == 'game'
+        if self._write_live and time.monotonic() - self._last_live_write >= 1:
+            self._last_live_write = time.monotonic()
+            try:
+                path = ROOT / 'build/game-live.json'
+                path.parent.mkdir(exist_ok=True)
+                path.write_text(json.dumps(dict(ui='QtQuick', backend='ARM_SIM' if self._arm_sim else 'STM32_UART',
+                    game=self._game, firmware=snapshot['response']), ensure_ascii=False, indent=2) + '\n')
+            except OSError:
+                pass
 
     def _apply_snapshot(self, snapshot):
         self._apply_response(snapshot['response'])
@@ -328,13 +383,17 @@ class StudioController(QObject):
             except Exception:
                 pass
         self._device = None
+        self._game_inputs.release()
+        self._game.update(connected=False, ready=False, running=False, status='disconnected', warning=False, aeb=False)
         self._state.update(connected=False, app='', appVersion='', connectionText='Bağlantı yok',
                            appState='{}', telemetry=empty_telemetry(),
                            duello=dict(gun='—', action='—', ammo=0, targetHp=0, walking=False))
 
     @Slot(str)
     def navigate(self, page):
-        if page in ('adas', 'firmware', 'duello', 'console'):
+        if page != 'game' and self._game['running']:
+            self.pauseGame()
+        if page in ('game', 'adas', 'firmware', 'duello', 'console'):
             self._state['page'] = page
             self._publish()
 
@@ -659,7 +718,110 @@ class StudioController(QObject):
     @Slot()
     def _heartbeat(self):
         if self._idle() and self._state['connected'] and self._state['app'] != 'DeviceBoot':
-            self._job('heartbeat', lambda: self._device.runtime('STATUS'))
+            panel = self._state['page'] == 'game' and self._game['ready']
+            self._job('heartbeat', lambda: self._device.runtime('J' if panel else 'STATUS'),
+                      (lambda r: self._panel_response(r, allow_start=True)) if panel else None)
+
+    def _game_config(self):
+        return GameConfig(mode=self._game['mode'], acc=self._game['accEnabled'], target_kmh=self._game['targetKmh'],
+                          headway_ms=self._game['headwayMs'], seed=self._game['seed'])
+
+    @Slot(str, 'QVariant')
+    def setGameOption(self, key, value):
+        if self._defer_if_heartbeat(lambda: self.setGameOption(key, value)):
+            return
+        if not self._idle() or self._game['running']:
+            return
+        if hasattr(value, 'toVariant'):
+            value = value.toVariant()
+        try:
+            if key == 'mode' and value in MODES:
+                pass
+            elif key == 'accEnabled' and isinstance(value, bool):
+                pass
+            elif key in ('targetKmh', 'headwayMs', 'seed') and type(value) in (int, float) and int(value) == value:
+                low, high = {'targetKmh': (0, 200), 'headwayMs': (800, 4000), 'seed': (1, 999999)}[key]
+                if not low <= value <= high:
+                    raise ValueError('Oyun ayarı izin verilen sınırların dışında.')
+                value = int(value)
+            else:
+                raise ValueError('Geçersiz oyun ayarı.')
+            if self._game[key] != value:
+                self._game[key] = value
+                self._game_world = None
+                self._game['status'] = 'ready'
+            self._publish()
+            if self._state['connected'] and self._game['ready']:
+                command = self._game_config().command()
+                self._job('heartbeat', lambda: self._device.runtime(command), self._panel_response)
+        except (ValueError, TypeError) as exc:
+            self._message(str(exc), 'warning')
+
+    @Slot()
+    def startGame(self):
+        # Recheck when a queued click/card request is finally executed: focus
+        # or page may have changed while the heartbeat owned the UART.
+        if not self._window_active or self._state['page'] != 'game' or self._closing:
+            return
+        if self._defer_if_heartbeat(self.startGame):
+            return
+        if not self._require_device(runtime=True):
+            return
+        if not self._game['ready']:
+            self._message('Oyun için ADASLab v2 firmware’ini yükleyin.', 'warning')
+            return
+        config = self._game_config()
+        if self._game_world and (self._game_world.finished or self._game_world.config != config):
+            self._game_world = None
+        self._game_inputs.release()
+        self._game_runner = GameRunner(self._device, config, self._game_inputs, self._cancel, self._emit_snapshot, self._game_world)
+        self._game_world = self._game_runner.world
+        self._game.update(self._game_world.snapshot({}), running=True, status='running')
+        self._state.update(page='game', statusMessage='')
+        def done(response):
+            world = self._game_world
+            self._game.update(running=False, warning=False, aeb=False,
+                              status='collision' if world.collision else 'finished' if world.finished else 'paused')
+            if world.finished:
+                result = dict(mode=config.mode, seed=config.seed, distance=round(world.distance), score=world.score,
+                              collisions=int(world.collision), nearMisses=len(world.near_misses), interventions=world.interventions)
+                self._game['results'] = (self._game['results'] + [result])[-9:]
+            self._log('Trafik oyunu: ' + self._game['status'])
+        self._job('game', self._game_runner.run, done)
+
+    @Slot()
+    def pauseGame(self):
+        self._game_inputs.release()
+        if self._active_operation == 'game':
+            self.stopOperation()
+
+    @Slot()
+    def restartGame(self):
+        if self._defer_if_heartbeat(self.restartGame):
+            return
+        if self._idle():
+            self._game_world = None
+            self.startGame()
+
+    @Slot(str, bool, bool)
+    def gameKey(self, key, pressed, auto_repeat=False):
+        if self._game['running'] and self._state['page'] == 'game':
+            self._game_inputs.key(key, pressed, auto_repeat)
+
+    @Slot()
+    def releaseGameKeys(self):
+        self._game_inputs.release()
+
+    @Slot()
+    def focusLost(self):
+        self.releaseGameKeys()
+        self.pauseGame()
+
+    @Slot(bool)
+    def setWindowActive(self, active):
+        self._window_active = active
+        if not active:
+            self.focusLost()
 
     @Slot(result=bool)
     def requestClose(self):
