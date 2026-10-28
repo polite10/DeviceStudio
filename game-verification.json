@@ -1,0 +1,197 @@
+{
+  "date": "2026-10-28",
+  "platform": "macOS arm64",
+  "qt_version": "6.12.0",
+  "unit_checks": 72,
+  "qml_lint": "passed",
+  "refresh_qml_checks": 16,
+  "arm_traffic": {
+    "scope": "Actual compiled ARM control + deterministic desktop traffic; no physical board or GPU emulation",
+    "passed": 22,
+    "failed": 0,
+    "command_max_chars": 38,
+    "reply_max_bytes": 345,
+    "scenarios": [
+      {
+        "road": "scheduled-brake",
+        "mode": "active",
+        "seconds": 25.0,
+        "collision": false,
+        "minimum_gap_m": 4.558,
+        "warnings": 9,
+        "interventions": 22,
+        "brake_overrides_gas": true
+      },
+      {
+        "road": "scheduled-brake",
+        "mode": "warn",
+        "seconds": 5.75,
+        "collision": true,
+        "minimum_gap_m": 0.0,
+        "warnings": 1,
+        "interventions": 0,
+        "brake_overrides_gas": false
+      },
+      {
+        "road": "scheduled-brake",
+        "mode": "off",
+        "seconds": 5.75,
+        "collision": true,
+        "minimum_gap_m": 0.0,
+        "warnings": 0,
+        "interventions": 0,
+        "brake_overrides_gas": false
+      },
+      {
+        "road": "constant-slow-target",
+        "mode": "active",
+        "seconds": 25.0,
+        "collision": false,
+        "minimum_gap_m": 6.905,
+        "warnings": 20,
+        "interventions": 20,
+        "brake_overrides_gas": true
+      },
+      {
+        "road": "constant-slow-target",
+        "mode": "warn",
+        "seconds": 4.2,
+        "collision": true,
+        "minimum_gap_m": 0.0,
+        "warnings": 1,
+        "interventions": 0,
+        "brake_overrides_gas": false
+      },
+      {
+        "road": "constant-slow-target",
+        "mode": "off",
+        "seconds": 4.2,
+        "collision": true,
+        "minimum_gap_m": 0.0,
+        "warnings": 0,
+        "interventions": 0,
+        "brake_overrides_gas": false
+      }
+    ],
+    "checks": [
+      "scheduled-brake: ARM AEB overrides held accelerator",
+      "scheduled-brake: active mode avoids collision in this defined test",
+      "scheduled-brake: warning-only alerts with no actuator output",
+      "scheduled-brake: ignoring warning permits collision",
+      "scheduled-brake: off suppresses alerts and actuator output",
+      "scheduled-brake: unassisted held accelerator permits collision",
+      "scheduled-brake: warning/off physics match for the same player inputs",
+      "constant-slow-target: ARM AEB overrides held accelerator",
+      "constant-slow-target: active mode avoids collision in this defined test",
+      "constant-slow-target: warning-only alerts with no actuator output",
+      "constant-slow-target: ignoring warning permits collision",
+      "constant-slow-target: off suppresses alerts and actuator output",
+      "constant-slow-target: unassisted held accelerator permits collision",
+      "constant-slow-target: warning/off physics match for the same player inputs",
+      "Runner pause clears card output and stops at acknowledged step",
+      "Resume retains road/traffic and accepts nonzero first timestamp after RESET",
+      "Card warning-mode touch action is returned through J",
+      "Card START request is visible to the host",
+      "Card mode selection is locked during a run",
+      "Card PAUSE request is visible to the host",
+      "Maximum sample fields and sequence fit the real ARM parser/formatter",
+      "All game command/reply sizes respect existing UART buffers"
+    ]
+  },
+  "physical_game": {
+    "scope": "Physical STM32 UART/controller/GPU; simulated traffic and driver inputs",
+    "checks": [
+      "Physical ADASLab v2 runs under DeviceBoot v2",
+      "Active AEB brakes against held W and avoids defined braking traffic",
+      "active: real GPU completion and LCD frame counters advance",
+      "active: pause clears physical controller output",
+      "Warning mode alerts without applying the brake",
+      "warn: real GPU completion and LCD frame counters advance",
+      "warn: pause clears physical controller output",
+      "Off mode suppresses warnings and intervention",
+      "off: real GPU completion and LCD frame counters advance",
+      "off: pause clears physical controller output",
+      "Physical ACC accelerates toward target with no pedals pressed",
+      "Physical controller rejects duplicate timestamps",
+      "Physical controller rejects damaged sample CRC",
+      "Physical controller clears output when data stops"
+    ],
+    "scenarios": [
+      {
+        "mode": "active",
+        "seconds": 12.0,
+        "collision": false,
+        "warnings": 4,
+        "interventions": 12,
+        "rtt_mean_ms": 34.4,
+        "rtt_max_ms": 43.42,
+        "deadline_overruns": 0,
+        "compute_max_us": 23,
+        "gpu": 20174,
+        "frames": 1502
+      },
+      {
+        "mode": "warn",
+        "seconds": 5.75,
+        "collision": true,
+        "warnings": 1,
+        "interventions": 0,
+        "rtt_mean_ms": 34.64,
+        "rtt_max_ms": 43.49,
+        "deadline_overruns": 0,
+        "compute_max_us": 20,
+        "gpu": 22200,
+        "frames": 1622
+      },
+      {
+        "mode": "off",
+        "seconds": 5.75,
+        "collision": true,
+        "warnings": 0,
+        "interventions": 0,
+        "rtt_mean_ms": 34.25,
+        "rtt_max_ms": 46.12,
+        "deadline_overruns": 0,
+        "compute_max_us": 20,
+        "gpu": 23851,
+        "frames": 1740
+      }
+    ],
+    "passed": true,
+    "checks_passed": 14
+  },
+  "physical_flash": {
+    "bootloader_unchanged": true,
+    "settings_unchanged": true,
+    "firmware_readback_matches": true,
+    "settings_sha256": "1842e540fd9040e44181b8bd5c2d4f8680858ea04fff7b83263cc872100ed2df",
+    "firmware_sha256": "2be4ad3fefc4829364c6965044e7add1c5daeb9a86e6c004c4ef91352ff3f262",
+    "backup": "Backup/before-game-v2-20261028-223216"
+  },
+  "game_ui": {
+    "arm_software": {
+      "passed": true,
+      "checks": 58,
+      "graphics_api": "Software"
+    },
+    "arm_metal": {
+      "passed": true,
+      "checks": 58,
+      "graphics_api": "Metal"
+    },
+    "hardware_software": {
+      "passed": true,
+      "checks": 58,
+      "graphics_api": "Software"
+    }
+  },
+  "existing_ui_hardware": {
+    "passed": true,
+    "checks": 41
+  },
+  "limitations": [
+    "Physical finger gestures were not automated; exact LVGL touch action functions were exercised in compiled ARM tests.",
+    "Windows launcher was reviewed but not executed on Windows.",
+    "Traffic is simulated; this is an educational control model."
+  ]
+}
