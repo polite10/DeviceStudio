@@ -100,7 +100,11 @@ class Device:
         raise TimeoutError('Firmware dogrulandi ama uygulamadan hazir cevabi gelmedi')
     def upload(self,firmware,progress=lambda p,s:None,cancel=None):
         cancel=cancel or threading.Event()
-        self.enter_boot();data=firmware.data;m=firmware.manifest
+        data=firmware.data;m=firmware.manifest
+        Firmware.validate(m,data)
+        boot=self.enter_boot()
+        if m['id']>boot.get('max_app_id',2):
+            raise ProtocolError('Bu uygulama icin DeviceBoot v2 gerekli; once ST-LINK ile bootloaderi guncelleyin. Flash silinmedi.')
         progress(0,'Uygulama alani hazirlaniyor; bootloader ve saat kayitlari korunuyor')
         self.boot(BEGIN,struct.pack('<III',len(data),m['crc32'],m['id']),timeout=90,retries=0)
         try:
@@ -115,6 +119,8 @@ class Device:
             progress(98,'Firmware dogrulandi; uygulamanin hazir cevabi bekleniyor')
             response=self.run()
             if response.get('app')!=m['name']: raise ProtocolError('Beklenen uygulama baslamadi')
+            if response.get('id',m['id'])!=m['id'] or response.get('version')!=m['version']:
+                raise ProtocolError('Baslatilan uygulamanin kimligi veya surumu eslesmiyor')
             progress(100,'Firmware basariyla yuklendi; uygulama hazir')
             return response
         except Exception:

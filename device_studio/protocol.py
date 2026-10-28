@@ -1,6 +1,7 @@
 """DeviceBoot v1 framing and bounded .dfw firmware packages."""
 import hashlib
 import json
+import re
 import struct
 import zipfile
 import zlib
@@ -13,9 +14,22 @@ APP_MAX=0x083FC000-APP_BASE
 BOOT_BAUD=921600
 RUNTIME_BAUD=115200
 BOARD='STM32U5A9J-DK'
+APP_ID_MAX=0xFFFFFFFE
+BUILTIN_APPS={1:'Smartwatch',2:'Duello'}
 HELLO,BEGIN,DATA,FINISH,RUN,STATUS,ABORT=range(1,8)
 
 class ProtocolError(Exception): pass
+
+def validate_identity(app_id,name,version):
+    if type(app_id) is not int or not 1<=app_id<=APP_ID_MAX:
+        raise ProtocolError('Uygulama kimligi 1..4294967294 araliginda olmali')
+    if type(version) is not int or not 1<=version<=0xFFFFFFFF:
+        raise ProtocolError('Uygulama surumu pozitif bir uint32 olmali')
+    if not isinstance(name,str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_.-]{0,47}',name):
+        raise ProtocolError('Uygulama adi 1..48 ASCII harf/rakam veya _ . - icermeli ve harfle baslamali')
+    reserved={value.casefold():key for key,value in BUILTIN_APPS.items()}
+    if name.casefold()=='deviceboot' or (app_id in BUILTIN_APPS and name!=BUILTIN_APPS[app_id]) or (name.casefold() in reserved and reserved[name.casefold()]!=app_id):
+        raise ProtocolError('Uygulama adi veya kimligi ayrilmis')
 
 def encode(seq,command,payload=b''):
     prefix=struct.pack('<4sIII',MAGIC,seq,command,len(payload))
@@ -50,7 +64,7 @@ class Firmware:
         if not isinstance(m,dict) or m.get('schema')!=1 or m.get('board')!=BOARD or m.get('protocol')!=1 or m.get('base')!=APP_BASE:
             raise ProtocolError('Kart veya protokol uyusmuyor')
         if not 0x410<=len(data)<=APP_MAX or m.get('size')!=len(data): raise ProtocolError('Firmware bellek sinirlarinin disinda')
-        if m.get('id') not in (1,2) or m.get('name')!={1:'Smartwatch',2:'Duello'}[m['id']]: raise ProtocolError('Uygulama kimligi gecersiz')
+        validate_identity(m.get('id'),m.get('name'),m.get('version'))
         if m.get('sha256')!=hashlib.sha256(data).hexdigest() or m.get('crc32')!=zlib.crc32(data): raise ProtocolError('Dosya dogrulamasi basarisiz')
         sp,pc=struct.unpack_from('<II',data)
         if not 0x20000000<=sp<=0x2026FFF0 or sp&7 or not pc&1 or not APP_BASE<=pc&~1<APP_BASE+len(data):
@@ -58,9 +72,13 @@ class Firmware:
         magic,app_id,version,protocol=struct.unpack_from('<IIII',data,0x400)
         if (magic,app_id,protocol)!=(0x44415631,m['id'],1) or version!=m.get('version'): raise ProtocolError('Firmware kimligi eslesmiyor')
 
-def package(binary,output,name,version=1):
+def package(binary,output,name,version=None,app_id=None):
     data=Path(binary).read_bytes()
-    m={'schema':1,'board':BOARD,'protocol':1,'base':APP_BASE,'id':{'Smartwatch':1,'Duello':2}[name],
+    if len(data)<0x410: raise ProtocolError('Firmware kimlik descriptoru eksik')
+    _,descriptor_id,descriptor_version,_=struct.unpack_from('<4I',data,0x400)
+    app_id=descriptor_id if app_id is None else app_id
+    version=descriptor_version if version is None else version
+    m={'schema':1,'board':BOARD,'protocol':1,'base':APP_BASE,'id':app_id,
        'name':name,'version':version,'size':len(data),'sha256':hashlib.sha256(data).hexdigest(),'crc32':zlib.crc32(data)}
     Firmware.validate(m,data)
     Path(output).parent.mkdir(parents=True,exist_ok=True)

@@ -36,7 +36,7 @@ try:
     check(programmer.inspect()['installed'],'boot descriptor through SWD')
     device=Device(a.port);r=device.detect();check(r['app']=='DeviceBoot','bootloader UART identity')
     # Invalid sizes and commands must not erase valid firmware or protected regions.
-    for size,app_id in [(APP_MAX+1,1),(0,1),(2048,99)]:
+    for size,app_id in [(APP_MAX+1,1),(0,1),(2048,0),(2048,0xffffffff)]:
         rejected=False
         try:device.boot(BEGIN,struct.pack('<III',size,0,app_id))
         except ProtocolError:rejected=True
