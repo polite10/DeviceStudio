@@ -1,6 +1,6 @@
 {
-  "scope": "Local ARM builds/simulation, native Tk tests and physical ADASLab checks; see adas-hardware-report.json",
-  "studio_tests": 34,
+  "scope": "Previous firmware verification retained; current Qt UI verification is in qt-verification.json",
+  "studio_tests": 45,
   "bootloader_arm_checks": 26,
   "duello_runtime_arm_checks": 9,
   "uart_dma_arm_checks": 85,
@@ -15,5 +15,6 @@
   "adas_control_checks": 31,
   "adas_arm_integration_checks": 11,
   "adas_hardware_checks": 14,
-  "adas_hardware_passed": true
+  "adas_hardware_passed": true,
+  "qt_ui_report": "qt-verification.json"
 }

@@ -1,0 +1,80 @@
+{
+  "ui": "Python / PySide6 / Qt Quick",
+  "qt_version": "6.12.0",
+  "platform": "macOS arm64",
+  "unit_tests": 45,
+  "qml_lint": "passed without warnings",
+  "rendered_ui": {
+    "fixture": {
+      "passed": true,
+      "checks": 40,
+      "graphics_api": "Software",
+      "report": "build/qt-preview-fixture/report.json",
+      "screenshots": [
+        "build/qt-preview-fixture/offline.png",
+        "build/qt-preview-fixture/adas-live.png",
+        "build/qt-preview-fixture/adas-compact.png",
+        "build/qt-preview-fixture/firmware.png",
+        "build/qt-preview-fixture/duello.png",
+        "build/qt-preview-fixture/console.png",
+        "build/qt-preview-fixture/firmware-confirmation.png"
+      ]
+    },
+    "arm": {
+      "passed": true,
+      "checks": 35,
+      "graphics_api": "Software",
+      "report": "build/qt-preview-arm/report.json",
+      "screenshots": [
+        "build/qt-preview-arm/offline.png",
+        "build/qt-preview-arm/adas-live.png",
+        "build/qt-preview-arm/adas-compact.png",
+        "build/qt-preview-arm/firmware.png",
+        "build/qt-preview-arm/duello.png",
+        "build/qt-preview-arm/console.png"
+      ]
+    },
+    "hardware": {
+      "passed": true,
+      "checks": 41,
+      "graphics_api": "Metal",
+      "report": "build/qt-preview-hardware/report.json",
+      "screenshots": [
+        "build/qt-preview-hardware/offline.png",
+        "build/qt-preview-hardware/adas-live.png",
+        "build/qt-preview-hardware/adas-compact.png",
+        "build/qt-preview-hardware/firmware.png",
+        "build/qt-preview-hardware/duello.png",
+        "build/qt-preview-hardware/console.png",
+        "build/qt-preview-hardware/firmware-confirmation.png"
+      ],
+      "last_telemetry": {
+        "mode": "PAUSED",
+        "modeLabel": "Duraklatıldı",
+        "egoKmh": 10.404,
+        "leadKmh": 0.0,
+        "gapM": 6.66,
+        "ttcSeconds": 2.304,
+        "accelMps2": 0.0,
+        "simSeconds": 10.0,
+        "cycle": 1,
+        "rttMs": 34.2,
+        "overruns": 0,
+        "computeUs": 19,
+        "gpu": 2963595,
+        "frames": 84845,
+        "frameMaxMs": 35,
+        "fresh": true,
+        "present": true,
+        "collision": false
+      }
+    }
+  },
+  "firmware_changed": false,
+  "windows_runtime_tested": false,
+  "notes": [
+    "QML action signals, minimum-size bounds and rendered screens verified.",
+    "Physical ADASLab starts/pauses and receives measurement commands; upload/install confirmations tested without flashing.",
+    "Windows launcher updated; PowerShell runtime unavailable on this host."
+  ]
+}

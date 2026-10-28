@@ -1,5 +1,5 @@
 {
-  "passed": 34,
+  "passed": 45,
   "failed": 0,
-  "scope": "15 framing/package; 5 upload; 7 ADAS plant/transport; 7 native Tk tests. No hardware access in unit suite."
+  "scope": "15 framing/package; 5 upload; 7 ADAS plant/transport; 18 Qt controller tests. No physical hardware access in unit suite."
 }
