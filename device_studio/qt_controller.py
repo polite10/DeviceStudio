@@ -847,6 +847,22 @@ class StudioController(QObject):
         return self._window_active or self._external_driving_active()
 
     @Slot()
+    def openStandaloneGame(self):
+        if self._defer_if_heartbeat(self.openStandaloneGame):
+            return
+        if not self._idle():
+            self._message('Önce mevcut işlemi duraklatın.', 'info')
+            return
+        from .standalone import launch
+        try:
+            self.closeGame3D()
+            self._drop_device()
+            launch()
+            self._message('ADASLab Drive bağımsız açıldı; USB bağlantısı oyuna bırakıldı.', 'info')
+        except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
+            self._message(str(exc), 'error')
+
+    @Slot()
     def openGame3D(self):
         if self._closing:
             return

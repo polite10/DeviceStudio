@@ -164,12 +164,12 @@ FocusScope {
             Layout.fillWidth: true; spacing: 12
             GameButton {
                 objectName: "game3DButton"
-                text: gameView.game.renderer3dConnected ? "3B sürüş açık" : "3B sürüşü aç"
+                text: "ADASLab Drive’ı aç"
                 primary: true
-                enabled: Boolean(gameView.game.renderer3dAvailable) && !gameView.game.renderer3dConnected
-                onClicked: gameView.studio.openGame3D()
+                enabled: !gameView.studio.state.busy
+                onClicked: gameView.studio.openStandaloneGame()
                 ToolTip.visible: hovered
-                ToolTip.text: gameView.game.renderer3dMessage || "Godot oyun penceresini aç"
+                ToolTip.text: "Bağımsız oyunu aç; USB bağlantısını saat ile oyun yönetsin"
             }
             CopyText {
                 text: gameView.game.renderer3dConnected ? "Godot bağlı · WASD / oklar" : "W / ↑ gaz · S / ↓ fren · A–D / ← → şerit"

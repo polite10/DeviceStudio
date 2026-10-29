@@ -1,13 +1,21 @@
 extends Node3D
-## GPU display + input client. The authoritative world and UART stay in Studio.
+## Standalone 3D game. USB is owned by the native worker; ADAS stays on the watch.
 
 const Highway = preload("res://highway.gd")
 const Vehicle = preload("res://vehicle.gd")
+const DirectHost = preload("res://native_host.gd")
 const MODE_NAMES := ["Aktif destek","Yalnız uyarı","ADAS kapalı"]
 const MODE_VALUES := ["active","warn","off"]
 const VEHICLES := ["NormalCar1","SUV","NormalCar2","SportsCar","Taxi","SportsCar2"]
 const PAINTS := [Color("236e67"),Color("e1e6e4"),Color("d5a04c"),Color("697e9d"),Color("b75246"),Color("647a60")]
 
+var direct := false
+var native_host: RefCounted
+var native_port := ""
+var native_ports: Array[String] = []
+var native_port_box: OptionButton
+var watch_settings: Label
+var last_native_read := 0
 var peer := StreamPeerTCP.new()
 var port := 0
 var token := ""
@@ -74,7 +82,8 @@ var pause_button: Button
 
 func _ready() -> void:
 	_parse_args()
-	get_window().title = "ADASLab Drive · 3B Sürüş"
+	get_window().title = "ADASLab Drive"
+	if direct:network_message="Saati USB ile bağlayın."
 	get_window().focus_entered.connect(_focus_entered)
 	get_window().focus_exited.connect(_focus_exited)
 	active = get_window().has_focus() or qa_enabled
@@ -98,11 +107,16 @@ func _ready() -> void:
 		backend = "DEMO · fiziksel kart kullanılmıyor"
 		studio_connected = true
 		_demo_update()
+	elif direct:
+		backend="DIRECT_UART"
+		native_host=DirectHost.new()
+		native_host.heartbeat(active)
+		native_host.start(native_port,qa_enabled)
 	else:
 		_connect()
-	if qa_enabled and ResourceLoader.exists("res://qa.gd"):
+	if qa_enabled and ResourceLoader.exists("res://qa_native.gd" if direct else "res://qa.gd"):
 		var qa_node := Node.new()
-		qa_node.set_script(load("res://qa.gd"))
+		qa_node.set_script(load("res://qa_native.gd" if direct else "res://qa.gd"))
 		add_child(qa_node)
 
 func _asset(model: String) -> String:
@@ -124,7 +138,9 @@ func _parse_args() -> void:
 			if arg=="--bridge-port":index+=1;port=int(args[index])
 			elif arg=="--bridge-token":index+=1;token=args[index]
 			elif arg=="--capture":index+=1;capture_path=args[index]
+			elif arg=="--native-port":index+=1;native_port=args[index]
 		index+=1
+	direct=port<=0 and not demo
 
 func _connect() -> void:
 	if port<=0 or token.is_empty():
@@ -191,6 +207,15 @@ func _disconnect(message: String) -> void:
 
 func _send(message: Dictionary) -> void:
 	if demo:return
+	if direct:
+		if native_host==null:return
+		match str(message.get("type","")):
+			"heartbeat":native_host.heartbeat(bool(message.get("active",false)))
+			"input":native_host.key_event(str(message.key),bool(message.pressed),bool(message.get("repeat",false)))
+			"action":
+				if message.name=="pause":native_host.pause()
+				elif message.name=="restart":native_host.restart()
+		return
 	if peer.get_status()==StreamPeerTCP.STATUS_CONNECTED:
 		peer.put_data((JSON.stringify(message)+"\n").to_utf8_buffer())
 
@@ -216,7 +241,7 @@ func _accept_state(incoming: Dictionary, now: int) -> void:
 	if not was_running and bool(state.get("running",false)):
 		get_viewport().gui_release_focus()
 	was_running = bool(state.get("running",false))
-	network_message = ""
+	network_message = String(incoming.get("hint","")) if direct else ""
 	_refresh_ui()
 
 func _process(delta: float) -> void:
@@ -225,6 +250,13 @@ func _process(delta: float) -> void:
 	if demo:
 		if demo_running:demo_clock+=delta
 		if now-last_state_time>=50:_demo_update()
+	elif direct:
+		native_host.heartbeat(active)
+		if now-last_native_read>=35:
+			last_native_read=now
+			var incoming:Dictionary=native_host.get_snapshot()
+			studio_connected=bool(incoming.get("connected",false))
+			if incoming!=state:_accept_state(incoming,now)
 	else:_poll_network(now)
 	_render_world(delta,now)
 	if not capture_done and not capture_path.is_empty() and frame_count>=capture_after:
@@ -493,43 +525,60 @@ func _build_hud() -> void:
 	pause_description=_label("ADAS kararları kartta, sürüş dünyası Studio’da.",13,Color("9eb6c2"))
 	pause_description.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 	options.add_child(pause_description)
-	var mode_row := HBoxContainer.new()
-	mode_row.add_theme_constant_override("separation",7)
-	options.add_child(mode_row)
-	for i in range(3):
-		var button := _button(MODE_NAMES[i])
-		button.size_flags_horizontal=Control.SIZE_EXPAND_FILL
-		button.add_theme_font_size_override("font_size",13)
-		button.pressed.connect(_setting.bind("mode",MODE_VALUES[i]))
-		mode_row.add_child(button)
-		mode_buttons.append(button)
-	var target_row := HBoxContainer.new()
-	target_row.add_theme_constant_override("separation",14)
-	options.add_child(target_row)
-	acc_button=CheckButton.new()
-	acc_button.text="ACC"
-	acc_button.size_flags_horizontal=Control.SIZE_EXPAND_FILL
-	acc_button.toggled.connect(func(value:bool):_setting("accEnabled",value))
-	target_row.add_child(acc_button)
-	target_row.add_child(_label("Hedef km/sa",13,Color("9eb6c2")))
-	target_spin=SpinBox.new()
-	target_spin.min_value=0;target_spin.max_value=200;target_spin.step=1
-	target_spin.value=90
-	target_spin.value_changed.connect(func(value:float):_setting("targetKmh",int(value)))
-	target_row.add_child(target_spin)
-	var seed_row := HBoxContainer.new()
-	options.add_child(seed_row)
-	var seed_label := _label("Trafik tohumu",13,Color("9eb6c2"))
-	seed_label.size_flags_horizontal=Control.SIZE_EXPAND_FILL
-	seed_row.add_child(seed_label)
-	seed_spin=SpinBox.new()
-	seed_spin.min_value=1;seed_spin.max_value=9999;seed_spin.value=42
-	seed_spin.value_changed.connect(func(value:float):_setting("seed",int(value)))
-	seed_row.add_child(seed_spin)
+	if direct:
+		watch_settings=_label("ADAS ayarları saatten okunuyor…",15,Color("a7c9c0"))
+		watch_settings.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
+		options.add_child(watch_settings)
+		var ports_row:=HBoxContainer.new()
+		ports_row.add_theme_constant_override("separation",8)
+		options.add_child(ports_row)
+		native_port_box=OptionButton.new()
+		native_port_box.custom_minimum_size=Vector2(250,40)
+		native_port_box.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+		native_port_box.add_item("USB · Otomatik")
+		native_port_box.item_selected.connect(func(index:int):native_host.reconnect("" if index==0 else native_ports[index-1]))
+		ports_row.add_child(native_port_box)
+		var retry:=_button("Yeniden bağlan")
+		retry.pressed.connect(func():native_host.reconnect("" if native_port_box.selected<=0 else native_ports[native_port_box.selected-1]))
+		ports_row.add_child(retry)
+	else:
+		var mode_row := HBoxContainer.new()
+		mode_row.add_theme_constant_override("separation",7)
+		options.add_child(mode_row)
+		for i in range(3):
+			var button := _button(MODE_NAMES[i])
+			button.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+			button.add_theme_font_size_override("font_size",13)
+			button.pressed.connect(_setting.bind("mode",MODE_VALUES[i]))
+			mode_row.add_child(button)
+			mode_buttons.append(button)
+		var target_row := HBoxContainer.new()
+		target_row.add_theme_constant_override("separation",14)
+		options.add_child(target_row)
+		acc_button=CheckButton.new()
+		acc_button.text="ACC"
+		acc_button.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+		acc_button.toggled.connect(func(value:bool):_setting("accEnabled",value))
+		target_row.add_child(acc_button)
+		target_row.add_child(_label("Hedef km/sa",13,Color("9eb6c2")))
+		target_spin=SpinBox.new()
+		target_spin.min_value=0;target_spin.max_value=200;target_spin.step=1
+		target_spin.value=90
+		target_spin.value_changed.connect(func(value:float):_setting("targetKmh",int(value)))
+		target_row.add_child(target_spin)
+		var seed_row := HBoxContainer.new()
+		options.add_child(seed_row)
+		var seed_label := _label("Trafik tohumu",13,Color("9eb6c2"))
+		seed_label.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+		seed_row.add_child(seed_label)
+		seed_spin=SpinBox.new()
+		seed_spin.min_value=1;seed_spin.max_value=9999;seed_spin.value=42
+		seed_spin.value_changed.connect(func(value:float):_setting("seed",int(value)))
+		seed_row.add_child(seed_spin)
 	start_button=_button("Sürüşü başlat",true)
 	start_button.pressed.connect(func():_action("start"))
 	options.add_child(start_button)
-	restart_button=_button("Aynı trafikle yeniden dene")
+	restart_button=_button("Yolu sıfırla" if direct else "Aynı trafikle yeniden dene")
 	restart_button.pressed.connect(func():_action("restart"))
 	options.add_child(restart_button)
 	_refresh_ui()
@@ -540,7 +589,7 @@ func _refresh_ui() -> void:
 	var mode := String(state.get("mode","active"))
 	var mode_index := MODE_VALUES.find(mode)
 	mode_index=maxi(mode_index,0)
-	var backend_label := "ARM simülasyonu · fiziksel kart kullanılmıyor" if backend == "ARM_SIM" else ("Kart bağlı · ADASLab v2" if bool(state.get("ready",false)) else "Kart bağlı · ADASLab v2 bekleniyor") if backend == "STM32_UART" else backend
+	var backend_label := "Saate bağlı · ADASLab v2" if backend=="DIRECT_UART" else "ARM simülasyonu · fiziksel kart kullanılmıyor" if backend=="ARM_SIM" else "Kart bağlı · ADASLab v2" if backend=="STM32_UART" else backend
 	connection_label.text = backend_label if studio_connected else network_message
 	connection_label.add_theme_color_override("font_color",Color("e2bc76") if demo else Color("9db7bf"))
 	mode_label.text = MODE_NAMES[mode_index].to_upper()
@@ -569,6 +618,19 @@ func _refresh_ui() -> void:
 	start_button.text="Sürüşe devam et" if status=="paused" else "Sürüşü başlat"
 	start_button.disabled=not studio_connected or not bool(state.get("ready",false))
 	restart_button.disabled=start_button.disabled
+	if direct:
+		pause_description.text="ADAS modu, ACC, hız ve takip ayarını saatten değiştirin." if game_ready else network_message
+		start_button.text="Saat ekranından başlatın" if game_ready else "Saat bağlantısı bekleniyor"
+		start_button.disabled=true
+		restart_button.disabled=not game_ready
+		watch_settings.text="%s  ·  ACC %s\nHedef %d km/sa  ·  Takip %.1f sn"%[MODE_NAMES[mode_index],"açık" if state.get("accEnabled",false) else "kapalı",int(state.get("targetKmh",90)),float(state.get("headwayMs",1800))/1000.0]
+		var ports:Array[String]=[]
+		for value in state.get("ports",[]):ports.append(str(value))
+		if ports!=native_ports:
+			native_ports=ports
+			native_port_box.clear();native_port_box.add_item("USB · Otomatik")
+			for value in ports:native_port_box.add_item(value)
+		return
 	sync_ui=true
 	for i in range(mode_buttons.size()):
 		mode_buttons[i].disabled=not game_ready or running
@@ -585,3 +647,8 @@ func _refresh_ui() -> void:
 	if not seed_spin.get_line_edit().has_focus() and seed_spin.value != float(state.get("seed",42)):
 		seed_spin.value=float(state.get("seed",42))
 	sync_ui=false
+
+func _exit_tree() -> void:
+	if native_host!=null:
+		native_host.stop()
+		native_host=null
