@@ -21,7 +21,7 @@ Node {
     // Source bounds in metres (mesh-notes.json, build_sahin_model.py): length, z centre,
     // half width, height; optionally indicator front/rear height and front/rear x.
     readonly property var specs: [[4.22071, 0.003, 0.904, 1.183], [4.20935, 0.0, 1.056, 1.51], [3.96871, 0.0, 0.902, 1.145],
-        [4.22072, 0.1035, 0.904, 1.3], [3.92700, -0.0655, 0.936, 1.187], [4.475, 0.0, 0.83, 1.395, 0.585, 0.7, 0.76, 0.445]]
+        [4.22072, 0.1035, 0.904, 1.3], [3.92700, -0.0655, 0.936, 1.187], [4.53, 0.005, 0.83, 1.395, 0.588, 0.7, 0.775, 0.468]]
     readonly property var spec: specs[Math.max(0, Math.min(specs.length - 1, variant))]
     // All cars share a 4.6 m collision envelope with the firmware traffic plant.
     readonly property real fit: 4.6 / spec[0]

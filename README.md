@@ -41,13 +41,30 @@ Başka sayfaya/pencereye geçmek veya yolun klavye odağını kaybetmesi sürü�
 
 Qt Quick 3D `View3D`, sahneyi doğrudan Studio penceresinde GPU ile çizer (macOS'ta Metal). `ExtendedSceneEnvironment` ACES ton eşleme, ekran uzayı ortam gölgesi (SSAO), HDR ışıma (fren lambaları), hafif vinyet ve kaskadlı yumuşak gölgeler kullanır. Gökyüzü ve çevre aydınlatması (HDR ışık probu) gerçek bir HDRI fotoğrafından, asfalt ve çim taranmış fotoğraf dokularından gelir; kaynaklar CC0 Poly Haven'dır ([ATTRIBUTION.md](device_studio/qml/assets/ATTRIBUTION.md)). İki yönlü otoyol; asfalt dokusu, tekerlek izleri, şerit/kenar çizgileri ve titreşim bandı özel shader'da, kaydırılan dünya koordinatlarında çizilir. Çevrede orta refüj bariyeri, W profilli korkuluklar, aydınlatma direkleri, tabela köprüsü, hız sınırı levhası, üst geçit, ağaçlık alanlar, tarlalar, uzak dağlar ve rüzgâr türbinleri vardır; karşı yönde yalnız görsel trafik akar. Tekrarlanan nesneler instancing ile çizilir.
 
-Ego araç, 1980'lerin kutu tipi Türk sedanı (Şahin) oranlarında prosedürel olarak modellenmiştir: 4,26 m boy, 2,49 m dingil mesafesi, dikdörtgen farlar ve ızgara, siyah tamponlar, yatay stoplar, jant kapakları ve TR plakalar; logo içermez ve `tools/build_sahin_model.py` ile üretilir. Trafikte de görünür. Diğer trafik araçları CC0 Quaternius modellerinin Qt biçimine dönüştürülmüş beş sürümüdür. Vernikli metalik boya, koyu cam, gündüz farları, fren ve sinyal lambaları, süspansiyon (frenlemede burun dalışı, şerit değiştirirken yatma) ve yön dönüşü vardır. Kamera hız ve ivmeyle hafifçe geri çekilir ve görüş açısını genişletir; sürekli titreşim yoktur, yalnız AEB'de kısa ve düşük frekanslı bir sarsıntı olur; sürüş öncesinde ve sonunda araç etrafında döner. Gökyüzü, yüzey dokuları ve sesler `tools/generate_drive_assets.py` ile üretilmiş, araçlar `tools/import_qt_vehicles.py` ile dönüştürülmüştür; ikisinin çıktısı da depodadır. Kullanıcıda Godot, model dönüştürücü, numpy, Pillow veya OpenCV gerekmez; üreticiyi yeniden çalıştırmak için numpy, Pillow, opencv-python ve Poly Haven kaynak dosyaları gerekir.
+Ego araç, 1980'lerin kutu tipi Türk sedanı (Şahin) oranlarında Blender'da modellenmiştir: 4,5 m boy, 2,49 m dingil mesafesi; pahlı gövde, gerçek cam ve çamurluk boşlukları, kapı/kaput derzleri, gömme dikdörtgen farlar ve ızgara, siyah tamponlar, yatay stoplar, aynalar, jant kapakları, TR plakalar ve koltuk, torpido, direksiyonlu iç mekân. Logo içermez. Trafikte de görünür. Diğer trafik araçları CC0 Quaternius modellerinin Qt biçimine dönüştürülmüş beş sürümüdür. Vernikli metalik boya, koyu cam, gündüz farları, fren ve sinyal lambaları, süspansiyon (frenlemede burun dalışı, şerit değiştirirken yatma) ve yön dönüşü vardır. Kamera hız ve ivmeyle hafifçe geri çekilir ve görüş açısını genişletir; sürekli titreşim yoktur, yalnız AEB'de kısa ve düşük frekanslı bir sarsıntı olur; sürüş öncesinde ve sonunda araç etrafında döner. Tüm model, doku ve ses çıktıları depodadır; Studio'yu çalıştırmak için Blender, Godot, numpy, Pillow veya OpenCV gerekmez (bkz. [3B varlıkları yeniden üretme](#3b-varlıkları-yeniden-üretme)).
 
 Python işçisi USB/UART'ın tek sahibidir. Boştayken `J` sorgusu saatin ayarlarını ve BASLAT isteğini okur; sürüşte 20 Hz CRC korumalı ölçümleri gönderir. Trafik/araç fiziği Python'da, FCW/AEB/ACC hesabı saatteki C kodunda çalışır. Yalnız doğrulanmış cevap fizik adımını 50 ms ilerletir. 3B çizim bu adımları simülasyon zamanıyla tamponlar ve ekran tazeleme hızında (120 Hz'e kadar) en yeni örneğin yaklaşık 100 ms gerisinden, iki örnek arasında hız bilgisiyle yumuşak eğri (Hermite) kullanarak çizer; seri hat gecikmesindeki dalgalanma hız sıçraması olarak görünmez. Saatin hassas hedef hızı sürüş başlarken bilgisayardan tekrar yazılmaz; 216 km/sa sınırı desteklenir.
 
 Arka plan sorguları düğmeleri kilitlemez. Kontroller, telemetri ve port listeleri ayrı bildirimlerle güncellenir; 3B sahne ve klavye odağı her örnekte yeniden oluşturulmaz. Pencere kapanırken işçi duraklatma/temizlik işlemini bitirir. Aynı portu PuTTY, CubeIDE, ikinci Studio veya eski bağımsız oyunla açık tutmayın.
 
 Firmware, Düello ve komut konsolu sayfaları korunmuştur. İşlem ayrıntıları alt çubuktaki **İşlem günlüğü** içindedir. Eski Godot bağımsız prototipinin geliştirici kaynakları [godot/README.md](godot/README.md) altında bulunur; Studio başlatıcısı bu prototipi çalıştırmaz.
+
+## 3B varlıkları yeniden üretme
+
+Yalnız modeli veya dokuları değiştirirken gerekir.
+
+```sh
+# Bir kez: resmi Blender'ı SHA256 doğrulamasıyla .tools/blender altına kurar, sistemi değiştirmez
+.venv/bin/python tools/install_blender.py
+# Şahin: tools/sahin_blender.py ile Blender'da modeller, Balsam ile Qt biçimine çevirir, Sahin.qml yazar
+.venv/bin/python tools/build_sahin_model.py
+# Trafik araçları: Quaternius FBX dosyalarını Qt biçimine çevirir
+.venv/bin/python tools/import_qt_vehicles.py
+# Gökyüzü, ışık probu, yüzeyler ve sesler; numpy, Pillow ve opencv-python kurulu bir Python ister
+python3 tools/generate_drive_assets.py --source <Poly Haven klasörü>
+```
+
+`BLENDER_BIN` başka bir Blender'ı seçer; Windows'ta `C:\Program Files\Blender Foundation` altındaki, macOS'ta `/Applications` altındaki kurulum da kendiliğinden bulunur. Şahin, Blender 5.2.3 ile doğrulanmıştır ve aynı girdiden her seferinde bayt bayt aynı dosyalar üretilir. `--source` klasöründe [ATTRIBUTION.md](device_studio/qml/assets/ATTRIBUTION.md)'deki Poly Haven dosyalarının 2k sürümleri ve gökyüzü için 8k HDR bulunmalıdır; bu kaynaklar depoya eklenmez.
 
 ## Firmware yükleme ve bootloader
 
