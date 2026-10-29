@@ -1,5 +1,5 @@
 {
-  "verified_at": "2026-10-29T10:44:41.133308+00:00",
+  "verified_at": "2026-10-29T15:04:16.885181+00:00",
   "interface": "Studio embedded Qt Quick 3D View3D",
   "graphics_api": "Metal",
   "platform": "macOS Apple Silicon",
@@ -13,14 +13,24 @@
   },
   "arm": {
     "passed": true,
-    "checks": 57,
-    "watch_touch": "actual compiled adas_game_touch handler"
+    "checks": 63,
+    "watch_touch": "actual compiled adas_game_touch handler",
+    "motion": {
+      "frames": 181,
+      "frame_ms_p50": 7.33,
+      "speed_change_p95_mps": 0.07
+    }
   },
   "hardware": {
     "passed": true,
-    "checks": 48,
+    "checks": 54,
     "firmware": "ADASLab v2, ID 3",
-    "watch_requests": "existing G/H UART protocol equivalents; physical finger not automated"
+    "watch_requests": "existing G/H UART protocol equivalents; physical finger not automated",
+    "motion": {
+      "frames": 181,
+      "frame_ms_p50": 7.31,
+      "speed_change_p95_mps": 0.502
+    }
   },
   "stable_interaction": {
     "passed": true,
@@ -51,5 +61,29 @@
   "screenshot": "docs/adaslab-studio-3d.png",
   "limitations": [
     "Windows was not run on this host"
-  ]
+  ],
+  "rendering": {
+    "environment": "ExtendedSceneEnvironment: ACES tone mapping, SSAO, HDR glow, vignette, 2-split cascaded soft shadows",
+    "sky": "2048 px procedural cube map with clouds and mountain ranges; separate IBL probe",
+    "road": "custom shader in scrolled world space: asphalt, wheel tracks, markings, rumble strip",
+    "motion": "samples buffered by simulation time, drawn ~100 ms behind with Hermite interpolation at display rate",
+    "measured_frame_rate_hz": 120,
+    "assets": [
+      "tools/generate_drive_assets.py",
+      "tools/import_qt_vehicles.py"
+    ]
+  },
+  "hud": [
+    "instrument cluster with ACC/FCW/AEB telltales",
+    "sensor top view",
+    "projected lead-vehicle bracket",
+    "following-distance carpet",
+    "FCW/AEB banner, screen-edge alert and chimes",
+    "drive summary"
+  ],
+  "controls": {
+    "C": "chase / hood camera",
+    "V": "ADAS overlays",
+    "M": "sound"
+  }
 }
