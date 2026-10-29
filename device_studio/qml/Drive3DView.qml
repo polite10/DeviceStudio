@@ -453,7 +453,7 @@ FocusScope {
                 environment: ExtendedSceneEnvironment {
                     backgroundMode: SceneEnvironment.SkyBoxCubeMap
                     skyBoxCubeMap: CubeMapTexture { source: "assets/sky/sky_%p.jpg" }
-                    lightProbe: Texture { source: "assets/sky/probe.jpg" }
+                    lightProbe: Texture { source: "assets/sky/probe.hdr" }
                     probeExposure: 0.78
                     probeHorizon: 0.35
                     antialiasingMode: SceneEnvironment.MSAA
@@ -475,7 +475,7 @@ FocusScope {
                     adjustmentContrast: 1.04; adjustmentSaturation: 1.1; adjustmentBrightness: 1.0
                     ditheringEnabled: true
                     fog: Fog {
-                        enabled: true; color: "#b8cad3"
+                        enabled: true; color: "#d4dbeb"
                         depthEnabled: true; depthNear: 70; depthFar: 720; depthCurve: 0.85; density: 0.92
                     }
                 }
@@ -486,7 +486,7 @@ FocusScope {
                     clipNear: 0.25; clipFar: 1600; fieldOfView: 56
                 }
                 DirectionalLight {
-                    eulerRotation: Qt.vector3d(-38, -32, 0)
+                    eulerRotation: Qt.vector3d(-48, -32, 0)
                     color: "#fff2df"; brightness: 1.55
                     ambientColor: "#1a2128"
                     castsShadow: true

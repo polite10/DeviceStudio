@@ -16,12 +16,13 @@ void MAIN()
     float wx = max(fwidth(lx), 0.0004) * 0.7;
     float ws = max(fwidth(s), 0.0004) * 0.7;
 
-    // Each lane and shoulder is a separate paving strip.
+    // Scanned 3 m asphalt (Poly Haven asphalt_02); each lane and shoulder is a
+    // separate paving strip, so neighbouring lanes do not repeat in step.
     float strip = floor((lx + 5.4) / 3.6);
-    vec2 uv = vec2(lx / 3.6 + 0.5, s / 3.6 + strip * 0.37 + (oncoming ? 0.53 : 0.0));
+    vec2 uv = vec2(lx / 3.0 + 0.5, s / 3.0 + strip * 0.37 + (oncoming ? 0.53 : 0.0));
     vec3 asphalt = pow(texture(asphaltMap, uv).rgb, vec3(2.2)) * asphaltTint;
     vec3 bumps = texture(asphaltNormal, uv).xyz * 2.0 - 1.0;
-    float roughness = 0.9;
+    float roughness = texture(asphaltRough, uv).r;
 
     // Rubber-darkened, polished wheel paths and an oil line in every lane.
     float inLane = band(lx, -5.4, 5.4, wx);
@@ -52,7 +53,7 @@ void MAIN()
     vec3 color = mix(asphalt, vec3(0.8, 0.8, 0.77) * paintLevel, paint);
     roughness = mix(roughness, 0.5, paint);
 
-    float strength = mix(0.6, 0.15, paint);
+    float strength = mix(1.0, 0.25, paint);
     NORMAL = normalize(vec3(bumps.x * strength, 1.0, -bumps.y * strength));
     BASE_COLOR = vec4(color, 1.0);
     ROUGHNESS = clamp(roughness, 0.3, 1.0);

@@ -136,10 +136,19 @@ Node {
         shadingMode: CustomMaterial.Shaded
         fragmentShader: "shaders/ground.frag"
         property real scroll: road.distance % 1200
-        property vector3d groundTint: Qt.vector3d(0.7, 0.74, 0.62)
+        property vector3d groundTint: Qt.vector3d(0.55, 0.88, 0.95)
+        // Mean linear luminance of grass_color.jpg (printed by the generator).
+        property real grassMean: 0.1267
         property TextureInput grassMap: TextureInput {
             texture: Texture {
-                source: "assets/surfaces/grass.jpg"
+                source: "assets/surfaces/grass_color.jpg"
+                tilingModeHorizontal: Texture.Repeat; tilingModeVertical: Texture.Repeat
+                generateMipmaps: true; mipFilter: Texture.Linear
+            }
+        }
+        property TextureInput grassNormal: TextureInput {
+            texture: Texture {
+                source: "assets/surfaces/grass_normal.jpg"
                 tilingModeHorizontal: Texture.Repeat; tilingModeVertical: Texture.Repeat
                 generateMipmaps: true; mipFilter: Texture.Linear
             }
@@ -165,18 +174,25 @@ Node {
             shadingMode: CustomMaterial.Shaded
             fragmentShader: "shaders/road.frag"
             property real scroll: road.distance % 72
-            property vector3d asphaltTint: Qt.vector3d(0.74, 0.74, 0.76)
+            property vector3d asphaltTint: Qt.vector3d(1.0, 1.0, 1.0)
             property real paintLevel: 1.0
             property TextureInput asphaltMap: TextureInput {
                 texture: Texture {
-                    source: "assets/surfaces/asphalt.jpg"
+                    source: "assets/surfaces/asphalt_color.jpg"
                     tilingModeHorizontal: Texture.Repeat; tilingModeVertical: Texture.Repeat
                     generateMipmaps: true; mipFilter: Texture.Linear
                 }
             }
             property TextureInput asphaltNormal: TextureInput {
                 texture: Texture {
-                    source: "assets/surfaces/asphalt_normal.png"
+                    source: "assets/surfaces/asphalt_normal.jpg"
+                    tilingModeHorizontal: Texture.Repeat; tilingModeVertical: Texture.Repeat
+                    generateMipmaps: true; mipFilter: Texture.Linear
+                }
+            }
+            property TextureInput asphaltRough: TextureInput {
+                texture: Texture {
+                    source: "assets/surfaces/asphalt_rough.jpg"
                     tilingModeHorizontal: Texture.Repeat; tilingModeVertical: Texture.Repeat
                     generateMipmaps: true; mipFilter: Texture.Linear
                 }
