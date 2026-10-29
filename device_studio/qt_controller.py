@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 import queue
 import struct
+import subprocess
 import threading
 import time
 
@@ -23,6 +24,7 @@ from .protocol import Firmware, ProtocolError
 from .adas_sim import Config, Runner, SCENARIOS
 from .game_sim import GameConfig, GameRunner, DriverInput, MODES, MODE_NAMES
 from . import programmer
+from .godot_bridge import GodotBridge, find_godot
 
 ROOT = Path(__file__).resolve().parents[1]
 MODE_LABELS = {
@@ -74,13 +76,22 @@ class StudioController(QObject):
         self._game_world = None
         self._game_inputs = DriverInput()
         self._window_active = True
+        self._game3d_bridge = None
+        self._game3d_active = False
+        self._game3d_process = None
+        self._game3d_phase = 'closed'
+        self._game3d_executable = None
+        self._game3d_log = None
+        self._game3d_last_send = 0.
         self._game = dict(connected=False, ready=False, running=False, mode='active', accEnabled=False,
                           targetKmh=90, headwayMs=1800, seed=42, status='ready',
                           hint='ADASLab v2 firmware’ine bağlanın. WASD veya yön tuşlarıyla sürün.',
                           elapsed=0., remaining=120., distance=0., egoKmh=0., egoLane=1., targetLane=1,
                           accelMps2=0., ttc=-1., gap=-1., warning=False, aeb=False, traffic=[],
                           score=0, collisions=0, nearMisses=0, warnings=0, interventions=0,
-                          reactionMs=-1, results=[], rttMs=0., overruns=0, devicePanel=False)
+                          reactionMs=-1, results=[], rttMs=0., overruns=0, devicePanel=False,
+                          renderer3dAvailable=find_godot(ROOT) is not None,
+                          renderer3dConnected=False, renderer3dMessage='3B sürüş penceresi kapalı')
         self._cancel = threading.Event()
         self._events = queue.Queue()
         self._snapshots = queue.Queue(maxsize=2)
@@ -222,6 +233,7 @@ class StudioController(QObject):
 
     @Slot()
     def _drain(self):
+        self._poll_game_3d()
         changed = False
         latest = None
         while True:
@@ -332,7 +344,7 @@ class StudioController(QObject):
         if not self._game['running']:
             self._game.update(mode=MODE_NAMES.get(panel['gmode'], 'active'), accEnabled=bool(panel.get('gacc')),
                               targetKmh=round(panel.get('gtarget', 2500) * .036), headwayMs=panel.get('gheadway', 1800))
-        if allow_start and panel.get('grun') and self._window_active and not self._closing and self._state['page'] == 'game':
+        if allow_start and panel.get('grun') and self._driving_window_active() and not self._closing and self._state['page'] == 'game':
             QTimer.singleShot(0, self.startGame)
 
     def _apply_game_snapshot(self, snapshot):
@@ -761,7 +773,7 @@ class StudioController(QObject):
     def startGame(self):
         # Recheck when a queued click/card request is finally executed: focus
         # or page may have changed while the heartbeat owned the UART.
-        if not self._window_active or self._state['page'] != 'game' or self._closing:
+        if not self._driving_window_active() or self._state['page'] != 'game' or self._closing:
             return
         if self._defer_if_heartbeat(self.startGame):
             return
@@ -814,8 +826,11 @@ class StudioController(QObject):
 
     @Slot()
     def focusLost(self):
-        self.releaseGameKeys()
-        self.pauseGame()
+        # The external renderer owns driving focus while its authenticated
+        # heartbeat is fresh. Qt becoming inactive must not pause that window.
+        if not self._external_driving_active():
+            self.releaseGameKeys()
+            self.pauseGame()
 
     @Slot(bool)
     def setWindowActive(self, active):
@@ -823,12 +838,167 @@ class StudioController(QObject):
         if not active:
             self.focusLost()
 
+    def _external_driving_active(self):
+        bridge = self._game3d_bridge
+        return bool(bridge and bridge.connected and self._game3d_active and
+                    time.monotonic() - bridge._heartbeat_at <= bridge.heartbeat_timeout)
+
+    def _driving_window_active(self):
+        return self._window_active or self._external_driving_active()
+
+    @Slot()
+    def openGame3D(self):
+        if self._closing:
+            return
+        if self._game3d_process is not None and self._game3d_process.poll() is None:
+            self._message('3B sürüş penceresi zaten açık.', 'info')
+            return
+        self.closeGame3D()
+        executable = find_godot(ROOT)
+        project = ROOT / 'godot/adas_drive/project.godot'
+        self._game['renderer3dAvailable'] = executable is not None
+        if executable is None:
+            self._game['renderer3dMessage'] = 'Godot bulunamadı; GODOT_BIN yolunu ayarlayın.'
+            self._message(self._game['renderer3dMessage'], 'warning')
+            return
+        if not project.is_file():
+            self._game['renderer3dMessage'] = 'Godot sürüş projesi bulunamadı.'
+            self._message(self._game['renderer3dMessage'], 'error')
+            return
+        self.pauseGame()
+        try:
+            self._game3d_bridge = GodotBridge()
+            (ROOT / 'build').mkdir(exist_ok=True)
+            self._game3d_log = (ROOT / 'build/godot-drive.log').open('ab')
+            self._game3d_executable = executable
+            self._game3d_phase = 'importing'
+            # A cold clone contains GLB/FBX source assets, not .godot cache.
+            # Import asynchronously; never occupy the serial worker or GUI.
+            self._game3d_process = subprocess.Popen(
+                [str(executable), '--headless', '--editor', '--path', str(project.parent), '--import', '--quit'],
+                cwd=ROOT, stdout=self._game3d_log, stderr=subprocess.STDOUT)
+            self._game['renderer3dMessage'] = '3B modeller hazırlanıyor…'
+            self._state['page'] = 'game'
+            self._publish()
+        except (OSError, ValueError) as exc:
+            self.closeGame3D()
+            self._message('3B sürüş açılamadı: ' + str(exc), 'error')
+
+    def _launch_game3d_runtime(self):
+        bridge = self._game3d_bridge
+        self._game3d_process = subprocess.Popen(
+            [str(self._game3d_executable), '--path', str(ROOT / 'godot/adas_drive'), '--',
+             '--bridge-port', str(bridge.port), '--bridge-token', bridge.token],
+            cwd=ROOT, stdout=self._game3d_log, stderr=subprocess.STDOUT)
+        self._game3d_phase = 'running'
+        self._game['renderer3dMessage'] = '3B sürüş penceresi açılıyor…'
+        self._publish()
+
+    @Slot()
+    def closeGame3D(self):
+        if self._game3d_bridge is not None:
+            self.pauseGame()
+            self._game3d_bridge.close()
+            self._game3d_bridge = None
+        process, self._game3d_process = self._game3d_process, None
+        if process is not None and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=.2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                try:
+                    process.wait(timeout=.2)
+                except subprocess.TimeoutExpired:
+                    pass
+        self._game3d_phase = 'closed'
+        self._game3d_executable = None
+        if self._game3d_log is not None:
+            self._game3d_log.close()
+            self._game3d_log = None
+        self._game3d_active = False
+        self._game['renderer3dConnected'] = False
+        self._game['renderer3dMessage'] = '3B sürüş penceresi kapalı'
+        self._publish()
+
+    def _start_game3d_request(self, restart=False):
+        # Preserve the source of a deferred renderer request: switching back
+        # to an active Studio window must not revive an old Godot START.
+        if not self._external_driving_active() or self._closing or self._state['page'] != 'game':
+            return
+        if self._defer_if_heartbeat(lambda: self._start_game3d_request(restart)):
+            return
+        if restart:
+            self.restartGame()
+        else:
+            self.startGame()
+
+    def _poll_game_3d(self):
+        bridge = self._game3d_bridge
+        if bridge is None:
+            return
+        process = self._game3d_process
+        if process is not None and process.poll() is not None:
+            if self._game3d_phase == 'importing' and process.returncode == 0:
+                try:
+                    self._launch_game3d_runtime()
+                except OSError as exc:
+                    self.closeGame3D()
+                    self._message('3B sürüş açılamadı: ' + str(exc), 'error')
+            else:
+                importing = self._game3d_phase == 'importing'
+                self.closeGame3D()
+                self._message('3B modeller hazırlanamadı; build/godot-drive.log dosyasını kontrol edin.' if importing
+                              else '3B sürüş penceresi kapandı; sürüş duraklatıldı.', 'error' if importing else 'info')
+            return
+        changed = False
+        for message in bridge.poll():
+            kind = message['type']
+            if kind == 'connected':
+                self._game3d_active = False
+                self._game.update(renderer3dConnected=True, renderer3dMessage='3B sürüş bağlı')
+                changed = True
+            elif kind == 'disconnected':
+                self._game3d_active = False
+                self.pauseGame()
+                self._game.update(renderer3dConnected=False, renderer3dMessage='3B bağlantısı kesildi; sürüş duraklatıldı.')
+                changed = True
+            elif kind == 'heartbeat' or (kind == 'action' and message.get('name') == 'focus'):
+                self._game3d_active = message['active']
+                if not message['active']:
+                    # Release even if Qt has just gained focus. A held Godot
+                    # pedal must never migrate to the Qt driving viewport.
+                    self.releaseGameKeys()
+                    self.pauseGame()
+            elif kind == 'input':
+                if self._external_driving_active():
+                    self.gameKey(message['key'], message['pressed'], message.get('repeat', False))
+            elif kind == 'action':
+                action = message['name']
+                if action == 'pause':
+                    self.pauseGame()
+                elif self._external_driving_active():
+                    if action == 'start':
+                        self._start_game3d_request()
+                    elif action == 'restart':
+                        self._start_game3d_request(restart=True)
+            elif kind == 'setting':
+                self.setGameOption(message['key'], message['value'])
+        now = time.monotonic()
+        if bridge.connected and now - self._game3d_last_send >= .05:
+            self._game3d_last_send = now
+            bridge.send_state(self.gameState, connected=self._state['connected'],
+                              backend='ARM_SIM' if self._arm_sim else 'STM32_UART')
+        if changed:
+            self._publish()
+
     @Slot(result=bool)
     def requestClose(self):
         self._closing = True
         self._deferred.clear()
         self._pending = None
         self._heartbeat_timer.stop()
+        self.closeGame3D()
         if self._worker is not None:
             self._cancel.set()
             self._state.update(statusMessage='İşlem tamamlanınca pencere kapanacak…', statusTone='info', cancellable=False)
@@ -846,6 +1016,7 @@ class StudioController(QObject):
     @Slot()
     def shutdown(self):
         self._heartbeat_timer.stop()
+        self.closeGame3D()
         self._cancel.set()
         if self._worker is None:
             self._drop_device()
