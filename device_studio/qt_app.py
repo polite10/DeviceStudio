@@ -3,7 +3,9 @@ from pathlib import Path
 import sys
 
 from PySide6.QtCore import QTimer, QUrl
+from PySide6.QtGui import QSurfaceFormat
 from PySide6.QtQml import QQmlApplicationEngine
+from PySide6.QtQuick3D import QQuick3D
 from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWidgets import QApplication
 
@@ -18,6 +20,11 @@ def create_app(*, auto_connect=False, auto_adas=False, arm_sim=False, auto_game3
     """Return owned application/engine/controller for normal startup or QA."""
     QQuickStyle.setStyle('Basic')
     app = QApplication.instance() or QApplication(argv if argv is not None else sys.argv)
+    # OpenGL (Linux, or QSG_RHI_BACKEND=opengl on Windows) needs a core profile
+    # for the 3D scene; Direct3D 11 only takes its depth/stencil sizes. macOS
+    # renders with Metal, and Apple's OpenGL 4.1 core crashes Qt's MSAA path.
+    if sys.platform != 'darwin':
+        QSurfaceFormat.setDefaultFormat(QQuick3D.idealSurfaceFormat())
     app.setApplicationName('Device Studio')
     app.setOrganizationName('DeviceStudio')
     bridge = controller or StudioController(app, auto_adas=auto_adas, arm_sim=arm_sim)

@@ -135,7 +135,8 @@ def main():
         glb, out = work / 'sahin.glb', work / 'out'
         result = subprocess.run([blender, '--background', '--factory-startup', '--python',
                                  str(ROOT / 'tools/sahin_blender.py'), '--', str(glb)],
-                                capture_output=True, text=True)
+                                # Blender prints UTF-8 paths; Windows' locale codec may not decode them.
+                                capture_output=True, encoding='utf-8', errors='replace')
         if result.returncode or not glb.is_file():
             raise SystemExit('Blender modeli üretemedi:\n' + result.stdout[-3000:] + result.stderr[-3000:])
         values = {line.split()[0]: [float(x) for x in line.split()[1:]] for line in result.stdout.splitlines()

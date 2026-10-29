@@ -4,6 +4,8 @@ import re
 import shutil
 import subprocess
 
+from build_sahin_model import find_balsam
+
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / 'godot/adas_drive/assets/vehicles/quaternius'
 DEST = ROOT / 'device_studio/qml/assets/vehicles'
@@ -32,11 +34,11 @@ MATERIALS = {
 
 
 def main():
-    balsam = ROOT / '.venv/bin/pyside6-balsam'
+    balsam = find_balsam()
     for model, folder, name in MODELS:
         target = DEST / folder
         target.mkdir(parents=True, exist_ok=True)
-        subprocess.run([str(balsam), str(SOURCE / (model + '.fbx')), '-o', str(target)], check=True)
+        subprocess.run([balsam, str(SOURCE / (model + '.fbx')), '-o', str(target)], check=True)
         qml = target / (name + '.qml')
         text = qml.read_text()
         text = text.replace('    // Resources', '''    property color paint: "#42bfa7"
