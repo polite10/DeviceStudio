@@ -40,8 +40,9 @@ Windows'ta son iki komut için `.venv\Scripts\python.exe` kullanın. Başlatma s
 | `--connect` | Seçili ST-LINK seri portuna bağlanır. |
 | `--adas` | Gerçek karta bağlanır; kartta ADASLab çalışıyorsa deneyi başlatır. Firmware yüklemez. |
 | `--adas-sim` | Derlenen ARM ELF ile laboratuvar deneyini başlatır; fiziksel karta erişmez. |
-| `--game` | Gerçek karta bağlanır; ADASLab v2 oyun sayfasını hazırlar. Sürüşü kullanıcı başlatır. |
-| `--game-sim` | Derlenen ADASLab v2 ARM ELF ile oyun sayfasına bağlanır. Sürüşü kullanıcı başlatır; fiziksel karta erişmez. |
+| `--game` | Gerçek karta bağlanır; Godot 3B oyun penceresini açar. Sürüşü kullanıcı başlatır. |
+| `--game-sim` | ARM ELF denetleyicisiyle Godot 3B oyununu açar; fiziksel karta erişmez. |
+| `--game-2d` / `--game-2d-sim` | Mevcut QML trafik görünümünü gerçek kartla / ARM simülasyonuyla açar. |
 
 ARM simülasyonu için ek bağımlılıkları aynı ortama kurun:
 
@@ -67,6 +68,25 @@ Solda beş sayfa vardır:
 Bağlantıdan sonra çalışan uygulamaya uygun sayfa açılır. Alt çubuktaki **İşlem günlüğü** ayrıntıları gösterir. Bootloader bilgisi ile çalışan uygulamanın kimliği ayrı gösterilir. Flash descriptor'ı kimliği belirtir; tek başına bütün bootloader kodunun sağlık kontrolü değildir.
 
 PuTTY, başka bir Studio veya CubeIDE seri terminali aynı portu açık tutmamalıdır. Tek işçi seri portun sahibidir; deney, oyun veya yükleme sırasında çakışan komutlar kapalıdır. Boştaki durum sorgusu düğmeleri kilitlemez; sorgu sırasında yapılan kullanıcı işlemleri aynı seri işçide sıraya alınır. Telemetri, port listesi ve ayarlar ayrı bildirimlerle güncellendiği için seçimler ve klavye odağı her örnekte yeniden kurulmaz. Aktif işlem varken pencere kapatılırsa iptal/duraklatma istenir ve işçinin temizliği tamamlanınca kapanır. Kesilemeyen bootloader kurulumu tamamlanana kadar beklenir.
+
+## Gerçek 3B sürüş görünümü
+
+`--game` ve `--game-sim`, artık Studio ile birlikte ayrı bir Godot 3B sürüş penceresi açar. Gerçek araç modelleri, gölgeler, asfalt, yol çevresi ve takip/kaput kamerası kullanılır. Seri port ve fizik Studio'da, ADAS kararları mevcut C firmware'inde kalır. Kart firmware'ini bu grafik güncellemesi için yeniden yüklemek gerekmez.
+
+```sh
+.venv/bin/python tools/install_godot.py
+./Start.command --game
+# Kart olmadan derlenmiş ARM denetleyicisiyle:
+./Start.command --game-sim
+```
+
+Studio'daki **3B sürüşü aç** düğmesi de kullanılabilir. Godot penceresinde **Sürüşü başlat**, WASD/oklar ile sürüş, Boşluk/Esc ile duraklatma, C/F ile kamera değişimi vardır. Mod, ACC, hedef hız ve trafik tohumu duraklatma menüsünden seçilir. Başka pencereye geçince veya oyun bağlantısı kesilince sürüş durur.
+
+Mevcut QML oyununu ayrıca açmak için `--game-2d` / `--game-2d-sim` kullanın. Motor kurulum, mimari ve protokol ayrıntıları [Godot kullanım belgesinde](godot/README.md). İlk çalıştırmada model aktarımı arka planda tamamlanır; motor `.tools/godot` altında tutulur ve Git'e eklenmez.
+
+Gerçek kartla 3B sürüş doğrulandı; motor ve host test sonuçları [godot-verification.json](godot-verification.json) içinde.
+
+![ADASLab Drive 3B görünümü](docs/adaslab-drive-3d.png)
 
 ## Trafik oyunu: ilk sürüş
 

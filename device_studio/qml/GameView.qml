@@ -162,7 +162,19 @@ FocusScope {
         }
         RowLayout {
             Layout.fillWidth: true; spacing: 12
-            CopyText { text: "W / ↑ gaz   ·   S / ↓ fren   ·   A–D / ← → şerit   ·   Boşluk duraklat"; color: "#95afbf"; Layout.fillWidth: true }
+            GameButton {
+                objectName: "game3DButton"
+                text: gameView.game.renderer3dConnected ? "3B sürüş açık" : "3B sürüşü aç"
+                primary: true
+                enabled: Boolean(gameView.game.renderer3dAvailable) && !gameView.game.renderer3dConnected
+                onClicked: gameView.studio.openGame3D()
+                ToolTip.visible: hovered
+                ToolTip.text: gameView.game.renderer3dMessage || "Godot oyun penceresini aç"
+            }
+            CopyText {
+                text: gameView.game.renderer3dConnected ? "Godot bağlı · WASD / oklar" : "W / ↑ gaz · S / ↓ fren · A–D / ← → şerit"
+                color: "#95afbf"; Layout.fillWidth: true
+            }
             GameToggle {
                 id: accSwitch
                 objectName: "gameAccToggle"
@@ -218,8 +230,7 @@ FocusScope {
             }
             onActiveFocusChanged: {
                 if (!activeFocus && gameView.studio) {
-                    gameView.studio.releaseGameKeys()
-                    if (gameView.playing) gameView.studio.pauseGame()
+                    gameView.studio.focusLost()
                 }
             }
             Rectangle { anchors.fill: parent; color: "#0e1a24"; radius: 12; border.width: 1; border.color: viewport.activeFocus ? "#3a776e" : "#293e4d" }

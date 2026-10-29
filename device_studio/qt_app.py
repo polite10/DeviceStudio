@@ -12,7 +12,7 @@ from .qt_controller import StudioController
 QML_MAIN = Path(__file__).resolve().parent / 'qml/Main.qml'
 
 
-def create_app(*, auto_connect=False, auto_adas=False, arm_sim=False,
+def create_app(*, auto_connect=False, auto_adas=False, arm_sim=False, auto_game3d=False,
                controller=None, argv=None):
     """Return owned application/engine/controller for normal startup or QA."""
     QQuickStyle.setStyle('Basic')
@@ -28,11 +28,13 @@ def create_app(*, auto_connect=False, auto_adas=False, arm_sim=False,
         raise RuntimeError('Studio QML arayüzü yüklenemedi; konsoldaki hataları kontrol edin.')
     bridge.shutdownReady.connect(app.quit)
     app.aboutToQuit.connect(bridge.shutdown)
+    if auto_game3d:
+        QTimer.singleShot(200, bridge.openGame3D)
     if auto_connect:
         QTimer.singleShot(350, bridge.connectDevice)
     return app, engine, bridge
 
 
-def main(auto_connect=False, auto_adas=False, arm_sim=False):
-    app, engine, bridge = create_app(auto_connect=auto_connect, auto_adas=auto_adas, arm_sim=arm_sim)
+def main(auto_connect=False, auto_adas=False, arm_sim=False, auto_game3d=False):
+    app, engine, bridge = create_app(auto_connect=auto_connect, auto_adas=auto_adas, arm_sim=arm_sim, auto_game3d=auto_game3d)
     return app.exec()
