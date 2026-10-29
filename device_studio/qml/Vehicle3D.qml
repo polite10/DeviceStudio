@@ -16,10 +16,12 @@ Node {
     property int indicator: 0
     property bool blinkOn: false
     readonly property var sources: ["assets/vehicles/sedan/NormalCar1.qml", "assets/vehicles/suv/Suv.qml",
-        "assets/vehicles/sports/SportsCar.qml", "assets/vehicles/taxi/Taxi.qml", "assets/vehicles/sports2/SportsCar2.qml"]
-    // Source bounds in metres (mesh-notes.json): length, z centre, half width, height.
+        "assets/vehicles/sports/SportsCar.qml", "assets/vehicles/taxi/Taxi.qml", "assets/vehicles/sports2/SportsCar2.qml",
+        "assets/vehicles/sahin/Sahin.qml"]
+    // Source bounds in metres (mesh-notes.json, build_sahin_model.py): length, z centre,
+    // half width, height; optionally indicator front/rear height and front/rear x.
     readonly property var specs: [[4.22071, 0.003, 0.904, 1.183], [4.20935, 0.0, 1.056, 1.51], [3.96871, 0.0, 0.902, 1.145],
-        [4.22072, 0.1035, 0.904, 1.3], [3.92700, -0.0655, 0.936, 1.187]]
+        [4.22072, 0.1035, 0.904, 1.3], [3.92700, -0.0655, 0.936, 1.187], [4.475, 0.0, 0.83, 1.395, 0.585, 0.7, 0.76, 0.445]]
     readonly property var spec: specs[Math.max(0, Math.min(specs.length - 1, variant))]
     // All cars share a 4.6 m collision envelope with the firmware traffic plant.
     readonly property real fit: 4.6 / spec[0]
@@ -72,8 +74,8 @@ Node {
             required property var modelData
             source: "#Sphere"
             visible: vehicle.blinkOn && vehicle.indicator !== 0 && vehicle.indicator === -modelData[0]
-            x: modelData[0] * (vehicle.halfWidth - 0.3)
-            y: vehicle.height * (modelData[1] > 0 ? 0.5 : 0.58)
+            x: modelData[0] * (vehicle.spec.length > 4 ? vehicle.spec[modelData[1] > 0 ? 6 : 7] * vehicle.fit : vehicle.halfWidth - 0.3)
+            y: vehicle.spec.length > 4 ? vehicle.spec[modelData[1] > 0 ? 4 : 5] * vehicle.fit : vehicle.height * (modelData[1] > 0 ? 0.5 : 0.58)
             z: modelData[1] * 2.2
             scale: Qt.vector3d(0.0012, 0.0007, 0.0007)
             castsShadows: false

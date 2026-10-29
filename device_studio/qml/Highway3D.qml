@@ -88,7 +88,7 @@ Node {
         for (let i = 0; i < 9; ++i) {
             const lane = i % 3
             cars.push({lane: lane, offset: i * 97 + next() * 60, speed: (118 - lane * 14 + next() * 10) / 3.6,
-                       variant: [0, 1, 0, 3, 1, 2, 0, 4, 1][i], paint: ["#e8eaeb", "#2a2f35", "#b4b9bd", "#f2c12e", "#8e1c22",
+                       variant: [0, 1, 5, 3, 1, 2, 0, 4, 5][i], paint: ["#e8eaeb", "#2a2f35", "#b4b9bd", "#f2c12e", "#8e1c22",
                        "#1d3352", "#6b7178", "#d8dadb", "#3a4a3f"][i], metallic: [0.2, 0.6, 0.8, 0.2, 0.6, 0.6, 0.7, 0.2, 0.5][i]})
         }
         return cars

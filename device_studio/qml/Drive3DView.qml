@@ -55,7 +55,7 @@ FocusScope {
     function look(id) {
         const hash = Math.imul(id + 1, 2654435761) >>> 0
         const pick = hash % 100
-        const variant = pick < 40 ? 0 : pick < 66 ? 1 : pick < 78 ? 3 : pick < 89 ? 2 : 4
+        const variant = pick < 34 ? 0 : pick < 56 ? 1 : pick < 66 ? 3 : pick < 75 ? 2 : pick < 82 ? 4 : 5
         const paint = variant === 3 ? ["#f2c12e", 0.25] : drive.paints[(hash >>> 8) % drive.paints.length]
         return {variant: variant, paint: paint[0], metallic: paint[1]}
     }
@@ -501,7 +501,7 @@ FocusScope {
                 Vehicle3D {
                     id: ego
                     objectName: "egoVehicle3D"
-                    variant: 0; paint: "#17867b"; metallic: 0.7
+                    variant: 5; paint: "#b5221f"; metallic: 0.15
                     lamps: 0.45
                 }
                 Repeater3D {
