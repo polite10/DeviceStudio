@@ -1,13 +1,15 @@
 """Generate the embedded 3D drive scene's sky, surface textures and sounds.
 
 The output is deterministic and committed under device_studio/qml/assets/, so
-Studio itself never needs these packages. Regenerating needs numpy and Pillow,
-which are not Studio runtime requirements:
+Studio itself never needs these packages. Regenerating needs numpy, Pillow and,
+for the photographic sources, opencv-python (Radiance HDR reader):
 
-    python3 tools/generate_drive_assets.py
+    python3 tools/generate_drive_assets.py --source DIR
 
-Sky cube faces follow Qt Quick 3D's CubeMapTexture lookup, measured on this Qt
-version: a world direction (x, y, z) samples the OpenGL face texel of (-x, y, z).
+DIR holds the CC0 Poly Haven originals listed in assets/ATTRIBUTION.md; they are
+not committed. Sky cube faces follow Qt Quick 3D's CubeMapTexture lookup,
+measured on this Qt version: a world direction (x, y, z) samples the OpenGL
+face texel of (-x, y, z).
 """
 import argparse
 import math
@@ -19,18 +21,16 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / 'device_studio/qml/assets'
-# Same orientation as the scene's DirectionalLight (eulerRotation -38, -32, 0):
-# the sun stands behind the chase camera, to its left.
-LIGHT = (-38.0, -32.0)
+SKY_HDRI = 'kloofendal_48d_partly_cloudy_puresky'
+# The scene's DirectionalLight keeps this yaw so the sun stands behind the
+# chase camera, to its left; its pitch is the photographed sun's elevation.
+LIGHT_YAW = -32.0
 
 
 def light_direction(pitch, yaw):
     p, y = math.radians(pitch), math.radians(yaw)
     forward = np.array([0.0, math.sin(p), -math.cos(p)])
     return np.array([forward[2] * math.sin(y), forward[1], forward[2] * math.cos(y)])
-
-
-SUN = -light_direction(*LIGHT)
 
 
 def srgb(values):
@@ -122,15 +122,6 @@ def normal_map(height, strength):
     return normal * 0.5 + 0.5
 
 
-def periodic_curve(size, rng, harmonics=3, amplitude=0.06):
-    """x offset for each row that returns to its start, for seamless cracks."""
-    rows = np.arange(size) / size
-    curve = np.zeros(size)
-    for harmonic in range(1, harmonics + 1):
-        curve += amplitude / harmonic * np.sin(2 * math.pi * harmonic * rows + rng.uniform(0, 2 * math.pi))
-    return curve
-
-
 def save_rgb(path, image, quality=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     data = np.clip(image * 255 + np.random.default_rng(7).uniform(-0.5, 0.5, image.shape), 0, 255).astype(np.uint8)
@@ -189,53 +180,68 @@ class SkyNoise:
         return total / norm
 
 
-def sky(directions, noise):
+def landscape(color, directions, noise, haze):
+    """Three distant mountain ranges and ground haze below the horizon."""
     x, y, z = directions[..., 0], directions[..., 1], directions[..., 2]
-    up = np.clip(y, -1, 1)
-    elevation = np.degrees(np.arcsin(up))
+    elevation = np.degrees(np.arcsin(np.clip(y, -1, 1)))
     azimuth = np.arctan2(x, -z)
-
-    zenith, middle, horizon = srgb([46, 104, 178]), srgb([109, 160, 212]), srgb([196, 216, 227])
-    haze = srgb([186, 204, 210])
-    t = np.clip(up, 0, 1)[..., None]
-    color = mix(horizon, middle, smoothstep(0.0, 0.32, t))
-    color = mix(color, zenith, smoothstep(0.25, 1.0, t))
-
-    sun = np.clip((directions * SUN).sum(-1), -1, 1)[..., None]
-    color = color + srgb([255, 236, 200]) * (0.32 * np.exp((sun - 1) * 9) + 0.9 * np.exp((sun - 1) * 900))
-
-    # Fair-weather cumulus on a flat layer: perspective packs them toward the horizon.
-    lifted = np.maximum(up, 0.0) + 0.035
-    px, pz = x / lifted * 1.15, z / lifted * 1.15
-    warp_x = noise.fbm(px * 0.45 + 31.0, pz * 0.45, 3)
-    warp_z = noise.fbm(px * 0.45, pz * 0.45 - 17.0, 3)
-    density = noise.fbm(px + warp_x * 1.6, pz + warp_z * 1.6, 7)
-    detail = noise.fbm(px * 3.1 - 5.0, pz * 3.1 + 2.0, 4)
-    density = density * 0.82 + detail * 0.18
-    cover = smoothstep(0.50, 0.70, density) * smoothstep(0.015, 0.13, up) * (1 - 0.35 * smoothstep(0.55, 1.0, up))
-    toward_sun = noise.fbm(px + warp_x * 1.6 + SUN[0] * 0.35, pz + warp_z * 1.6 + SUN[2] * 0.35, 5)
-    shade = smoothstep(0.52, 0.82, toward_sun) * 0.42 + (1 - smoothstep(0.5, 0.8, density)) * 0.12
-    cloud = mix(srgb([252, 252, 250]), srgb([150, 164, 182]), shade[..., None])
-    cloud = mix(cloud, horizon, (1 - smoothstep(0.02, 0.3, up))[..., None] * 0.7)
-    color = mix(color, cloud, (cover * 0.96)[..., None])
-
-    # Three mountain ranges; atmospheric perspective lightens the farther ones.
     texture = noise.fbm(azimuth * 160.0, elevation * 9.0, 5)
+    # Atmospheric perspective lightens the farther ranges toward the haze.
     ranges = (
-        (1.3, 4.4, 0, [154, 176, 194], 1.5),
-        (0.6, 2.7, 1, [122, 145, 158], 1.35),
-        (-0.1, 1.35, 2, [94, 117, 103], 1.2),
+        (1.3, 4.4, 0, mix(srgb([154, 176, 194]), haze, 0.35), 1.5),
+        (0.6, 2.7, 1, mix(srgb([122, 145, 158]), haze, 0.2), 1.35),
+        (-0.1, 1.35, 2, srgb([94, 117, 103]), 1.2),
     )
     for base, height, layer, tint, sharpness in ranges:
         top = base + height * noise.ridge(azimuth, layer) ** sharpness
         inside = smoothstep(top + 0.03, top - 0.03, elevation)
-        rock = srgb(tint) * (0.86 + 0.24 * texture[..., None])
+        rock = tint * (0.86 + 0.24 * texture[..., None])
         fade = smoothstep(top - 0.2, -1.2, elevation)[..., None] * 0.55
-        rock = mix(rock, haze, fade)
-        color = mix(color, rock, inside[..., None])
+        color = mix(color, mix(rock, haze, fade), inside[..., None])
     below = smoothstep(-0.6, -2.5, elevation)[..., None]
-    color = mix(color, haze * 0.94, below)
-    return np.clip(color, 0, 1)
+    return mix(color, haze * 0.94, below)
+
+
+def read_hdr(path):
+    import cv2  # opencv-python, only needed to regenerate the sky
+    image = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    if image is None:
+        raise SystemExit(f'Cannot read {path}')
+    return np.ascontiguousarray(image[:, :, ::-1], dtype=np.float32)
+
+
+def write_hdr(path, image):
+    import cv2
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not cv2.imwrite(str(path), np.ascontiguousarray(image[:, :, ::-1], dtype=np.float32)):
+        raise SystemExit(f'Cannot write {path}')
+    print(f'{path.relative_to(ROOT)}  {path.stat().st_size // 1024} KiB')
+
+
+def luminance(image):
+    return image @ np.array([0.2126, 0.7152, 0.0722], np.float32)
+
+
+def sample_equirect(image, lon, lat):
+    """Bilinear lookup; lon 0 is the image centre, latitude +90 its top row."""
+    height, width = image.shape[:2]
+    u = (lon / (2 * math.pi) + 0.5) * width - 0.5
+    v = (0.5 - lat / math.pi) * height - 0.5
+    u0, v0 = np.floor(u).astype(np.int64), np.floor(v).astype(np.int64)
+    fu, fv = (u - u0)[..., None], (v - v0)[..., None]
+    v0c, v1c = np.clip(v0, 0, height - 1), np.clip(v0 + 1, 0, height - 1)
+    u0w, u1w = u0 % width, (u0 + 1) % width
+    top = image[v0c, u0w] * (1 - fu) + image[v0c, u1w] * fu
+    bottom = image[v1c, u0w] * (1 - fu) + image[v1c, u1w] * fu
+    return top * (1 - fv) + bottom * fv
+
+
+def find_sun(image):
+    """Longitude/latitude (radians) of the brightest blurred region."""
+    import cv2
+    small = cv2.resize(luminance(image), (1024, 512), interpolation=cv2.INTER_AREA)
+    v, u = np.unravel_index(np.argmax(cv2.GaussianBlur(small, (9, 9), 0)), small.shape)
+    return ((u + 0.5) / 1024 - 0.5) * 2 * math.pi, (0.5 - (v + 0.5) / 512) * math.pi
 
 
 def face_directions(face, size):
@@ -251,69 +257,70 @@ def face_directions(face, size):
     return direction / np.linalg.norm(direction, axis=-1, keepdims=True)
 
 
-def build_sky(size):
+def build_sky(source, size):
+    """Photographed sky (Poly Haven HDRI) turned so its sun matches the scene light."""
+    image = read_hdr(source / f'{SKY_HDRI}_8k.hdr')
+    sun_lon, sun_lat = find_sun(image)
+    target = -light_direction(-math.degrees(sun_lat), LIGHT_YAW)
+    turn = math.atan2(target[0], -target[2]) - sun_lon
+    print(f'Sun elevation {math.degrees(sun_lat):.1f} deg; set the DirectionalLight to '
+          f'eulerRotation ({-math.degrees(sun_lat):.1f}, {LIGHT_YAW:.0f}, 0).')
+    sky_lum = luminance(image[int(image.shape[0] * 0.17):int(image.shape[0] * 0.47)])
+    exposure = 0.42 / float(np.median(sky_lum))
     noise = SkyNoise(20261029)
+    horizon = None
     for face in ('posx', 'negx', 'posy', 'negy', 'posz', 'negz'):
-        save_rgb(ASSETS / f'sky/sky_{face}.jpg', sky(face_directions(face, size), noise), quality=90)
-    width = size // 2
-    lon = ((np.arange(width) + 0.5) / width - 0.5) * 2 * math.pi
-    lat = (0.5 - (np.arange(width // 2) + 0.5) / (width // 2)) * math.pi
-    lon, lat = np.meshgrid(lon, lat)
-    directions = np.stack([np.sin(lon) * np.cos(lat), np.sin(lat), -np.cos(lon) * np.cos(lat)], -1)
-    save_rgb(ASSETS / 'sky/probe.jpg', sky(directions, noise), quality=92)
+        directions = face_directions(face, size)
+        lon = np.arctan2(directions[..., 0], -directions[..., 2]) - turn
+        lat = np.arcsin(np.clip(directions[..., 1], -1, 1))
+        radiance = sample_equirect(image, (lon + math.pi) % (2 * math.pi) - math.pi, lat) * exposure
+        # Soft shoulder instead of clipping keeps cloud tops and the sun halo.
+        lum = luminance(radiance)[..., None]
+        shoulder = np.where(lum > 0.7, 0.7 + 0.3 * (1 - np.exp(-(lum - 0.7) / 0.3)), lum)
+        color = radiance * (shoulder / np.maximum(lum, 1e-6))
+        if horizon is None:
+            band = (np.degrees(lat) > 0.5) & (np.degrees(lat) < 3)
+            horizon = np.median(color[band], axis=0) if band.any() else srgb([186, 204, 210]) ** 2.2
+        color = landscape(np.clip(color, 0, 1) ** (1 / 2.2), directions, noise, np.clip(horizon, 0, 1) ** (1 / 2.2))
+        save_rgb(ASSETS / f'sky/sky_{face}.jpg', np.clip(color, 0, 1), quality=90)
+    haze = np.clip(horizon, 0, 1) ** (1 / 2.2)
+    print('Horizon haze sRGB #%02x%02x%02x: use it for the scene fog.' % tuple(int(c * 255) for c in haze))
+    # Image-based light: the same turn, the sun clipped because the
+    # DirectionalLight already provides it, scaled to the old probe's level.
+    # Measured: Qt's lightProbe shows longitude A - 90 deg at view azimuth A.
+    probe = read_hdr(source / f'{SKY_HDRI}_2k.hdr')
+    probe = np.roll(probe, int(round((turn - math.pi / 2) / (2 * math.pi) * probe.shape[1])), axis=1)
+    level = float(np.median(luminance(probe[int(probe.shape[0] * 0.17):int(probe.shape[0] * 0.47)])))
+    probe *= 0.55 / level
+    lum = luminance(probe)[..., None]
+    probe *= np.minimum(1.0, 6.0 / np.maximum(lum, 1e-6))
+    # The pure-sky photo mirrors the sky below the horizon; reflections in car
+    # paint should show road and fields instead, as in the scene.
+    rows = (0.5 - (np.arange(probe.shape[0]) + 0.5) / probe.shape[0]) * 180
+    below = smoothstep(0.5, -6.0, rows)[:, None, None]
+    ground = np.array([0.16, 0.16, 0.13], np.float32)
+    probe = probe * (1 - below) + ground * below
+    write_hdr(ASSETS / 'sky/probe.hdr', probe)
 
 
 # Surfaces -------------------------------------------------------------------
 
-def build_asphalt(size=1024):
-    """3.6 m square of worn motorway asphalt; wheel tracks are added by the shader."""
-    rng = np.random.default_rng(3601)
-    tone = 0.36 + 0.035 * (periodic_fbm(size, 4, 5, rng) - 0.5) + 0.05 * (periodic_fbm(size, 16, 4, rng) - 0.5)
-    grain = wrap_blur(rng.standard_normal((size, size)).astype(np.float32), 0.7) * 0.045
-    stones = wrap_blur((rng.random((size, size)) > 0.982).astype(np.float32), 0.9) * 0.55
-    pits = wrap_blur((rng.random((size, size)) > 0.986).astype(np.float32), 0.8) * 0.5
-    height = grain * 4 + stones - pits
-    value = tone + grain + stones * 0.32 - pits * 0.22
-    columns = np.arange(size)[None, :]
-    # Crack sealant: irregular tar strips that appear in segments, not lines
-    # running through every repeated tile.
-    seal = np.zeros((size, size), np.float32)
-    centre = (rng.uniform(0.15, 0.85) + periodic_curve(size, rng, 7, 0.01)) * size
-    width = rng.uniform(1.8, 2.6) * (0.75 + 0.5 * periodic_noise(size, 9, rng)[:, :1])
-    distance = np.abs((columns - centre[:, None] + size / 2) % size - size / 2)
-    segment = smoothstep(0.55, 0.66, periodic_fbm(size, 3, 3, rng)[:, :1])
-    seal = np.maximum(seal, smoothstep(width, width * 0.4, distance) * segment)
-    centre = (rng.uniform(0.2, 0.8) + periodic_curve(size, rng, 6, 0.008)) * size
-    distance = np.abs((columns - centre[:, None] + size / 2) % size - size / 2).T
-    crack = smoothstep(2.4, 0.8, distance) * smoothstep(0.56, 0.66, periodic_fbm(size, 4, 3, rng).T[:, :1].T)
-    seal = np.maximum(seal, crack)
-    value = value * (1 - 0.32 * seal)
-    height = height - seal * 0.25
-    tint = np.stack([value * 0.985, value, value * 1.03], -1)
-    save_rgb(ASSETS / 'surfaces/asphalt.jpg', tint, quality=90)
-    normal = normal_map(wrap_blur(height, 0.6), 2.4)
-    small = Image.fromarray((normal * 255).astype(np.uint8), 'RGB').resize((256, 256), Image.LANCZOS)
-    path = ASSETS / 'surfaces/asphalt_normal.png'
-    small.save(path, optimize=True)
+def resize_photo(source, name, target, size=1024, quality=90, mode='RGB'):
+    path = ASSETS / 'surfaces' / target
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.open(source / name).convert(mode).resize((size, size), Image.LANCZOS).save(path, quality=quality, optimize=True)
     print(f'{path.relative_to(ROOT)}  {path.stat().st_size // 1024} KiB')
 
 
-def build_grass(size=1024):
-    """4 m square of roadside grass with dry and clover patches."""
-    rng = np.random.default_rng(4004)
-    # No structure larger than ~0.5 m: the shader's macro map varies the rest,
-    # so the 4 m repeat never shows as stripes.
-    lush, mown, dry = srgb([70, 96, 44]), srgb([96, 116, 54]), srgb([138, 132, 82])
-    variation = periodic_fbm(size, 16, 5, rng)
-    color = mix(lush, mown, smoothstep(0.3, 0.7, variation)[..., None])
-    dry_mask = smoothstep(0.62, 0.78, periodic_fbm(size, 24, 3, rng))
-    color = mix(color, dry, (dry_mask * 0.45)[..., None])
-    clumps = periodic_fbm(size, 48, 3, rng)
-    blades = wrap_blur(rng.standard_normal((size, size)).astype(np.float32), 0.55)
-    color = color * (0.78 + 0.32 * clumps[..., None] + 0.07 * blades[..., None])
-    flowers = wrap_blur((rng.random((size, size)) > 0.9993).astype(np.float32), 0.9) * 4.0
-    color = mix(color, srgb([235, 228, 170]), np.clip(flowers, 0, 0.8)[..., None])
-    save_rgb(ASSETS / 'surfaces/grass.jpg', np.clip(color, 0, 1), quality=88)
+def build_photo_surfaces(source):
+    """Poly Haven scans: asphalt_02 (3 m square) and aerial_grass_rock (15 m)."""
+    resize_photo(source, 'asphalt_02_diff_2k.jpg', 'asphalt_color.jpg')
+    resize_photo(source, 'asphalt_02_nor_gl_2k.jpg', 'asphalt_normal.jpg', quality=94)
+    resize_photo(source, 'asphalt_02_rough_2k.jpg', 'asphalt_rough.jpg', size=512, mode='L')
+    resize_photo(source, 'aerial_grass_rock_diff_2k.jpg', 'grass_color.jpg')
+    resize_photo(source, 'aerial_grass_rock_nor_gl_2k.jpg', 'grass_normal.jpg', quality=94)
+    grass = np.asarray(Image.open(ASSETS / 'surfaces/grass_color.jpg'), np.float32) / 255
+    print('Grass mean linear luminance: %.4f (ground.frag grassMean)' % float(luminance(grass ** 2.2).mean()))
 
 
 def build_terrain_macro(size=512):
@@ -428,14 +435,16 @@ def build_sounds():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument('--source', type=Path, help='folder with the downloaded Poly Haven originals')
     parser.add_argument('--sky-size', type=int, default=2048)
     parser.add_argument('--only', choices=('sky', 'surfaces', 'sounds'))
     args = parser.parse_args()
+    if args.only in (None, 'sky', 'surfaces') and not args.source:
+        parser.error('--source is required for the sky and surfaces')
     if args.only in (None, 'sky'):
-        build_sky(args.sky_size)
+        build_sky(args.source, args.sky_size)
     if args.only in (None, 'surfaces'):
-        build_asphalt()
-        build_grass()
+        build_photo_surfaces(args.source)
         build_terrain_macro()
         build_foliage()
         build_concrete()

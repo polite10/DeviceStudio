@@ -8,3 +8,13 @@ godot/adas_drive/native/LICENSE.*.txt -text whitespace=-blank-at-eol,-blank-at-e
 
 # Generated Qt vehicles retain the same unmodified CC0 license.
 device_studio/qml/assets/vehicles/LICENSE.txt -text whitespace=-blank-at-eol,-blank-at-eof
+
+# 3D, image and audio assets are binary: never convert line endings
+# (Git for Windows defaults to core.autocrlf=true).
+*.hdr binary
+*.mesh binary
+*.jpg binary
+*.png binary
+*.wav binary
+*.glb binary
+*.fbx binary
