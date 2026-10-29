@@ -32,7 +32,7 @@ class FixtureDevice:
                        lead=int(fields[3]), gap=int(fields[4]), a=0, ttc=-1, gpu=0, frames=0, error='')
         elif command == 'PAUSE':
             old = dict(old, mode='PAUSED', a=0)
-        self.current = dict(app='ADASLab', id=3, version=1, protocol=1, boot=1,
+        self.current = dict(app='ADASLab', id=3, version=2, protocol=1, boot=1,
                             boot_version=2, ready=True, error='', state=old)
         return self.current
     def close(self):
@@ -93,7 +93,7 @@ def main():
         pump(.35)
         report['graphics_api'] = window.rendererInterface().graphicsApi().name
         check(window.objectName() == 'mainWindow', 'Qt Quick application window loaded')
-        check(not item('experimentButton').property('enabled'), 'Experiment disabled while disconnected')
+        check(not item('drive3DView').property('available'), '3D view clearly indicates missing device connection')
         capture('offline')
         if args.port:
             index = next(i for i, p in enumerate(bridge.state['ports']) if p['device'] == args.port)
@@ -108,31 +108,18 @@ def main():
         if args.backend == 'fixture':
             bridge._state['backendLabel'] = 'Arayüz testi · sanal cihaz'
             bridge._publish()
-        bridge.setOption('repeatEnabled', False)
-        speed = item('targetSpeed')
-        speed.setProperty('value', 85)
-        check(QMetaObject.invokeMethod(speed, 'valueModified', Qt.ConnectionType.DirectConnection), 'Speed control signal is connected')
-        check(bridge.state['targetKmh'] == 85, 'QML speed setting updates controller')
-        speed.setProperty('value', 90)
-        QMetaObject.invokeMethod(speed, 'valueModified', Qt.ConnectionType.DirectConnection)
-        check(QMetaObject.invokeMethod(item('experimentButton'), 'clicked', Qt.ConnectionType.DirectConnection), 'Experiment action reaches Python')
-        wait(lambda: bridge.state['running'] and len(bridge.state['history']) >= 3)
-        pump(args.seconds)
-        check(bridge.state['telemetry']['fresh'] and bridge.state['telemetry']['simSeconds'] > 1, 'Live measurements update telemetry and history')
-        if args.backend == 'hardware':
-            check(bridge.state['telemetry']['gpu'] > 0 and bridge.state['telemetry']['frames'] > 0, 'Physical firmware GPU and frame counters are live')
-        capture('adas-live')
+        check(item('drive3DView').property('available'), 'Embedded 3D page recognizes compatible firmware')
+        check(window.findChild(QObject, 'scenarioSelector') is None, 'Old ADASLab page is removed')
+        check(window.findChild(QObject, 'gameStartButton') is None, 'PC start controls are replaced by watch instructions')
+        capture('3d-ready')
         window.setWidth(1000)
         window.setHeight(720)
-        capture('adas-compact')
-        for name in ('scenarioSelector', 'targetSpeed', 'experimentButton'):
+        capture('3d-compact')
+        for name in ('watchMode', 'watchTarget', 'driveSpeed'):
             obj = item(name)
             point = obj.mapToScene(obj.boundingRect().topLeft())
-            check(point.x() >= 0 and point.y() >= 0 and point.x() + obj.width() <= window.width() + 1 and point.y() + obj.height() <= window.height() + 1,
-                  'Compact control stays within window: ' + name)
-        bridge.stopOperation()
-        wait(lambda: not bridge.state['busy'])
-        check(bridge.state['connected'] and not bridge.state['running'], 'Pause returns the serial owner without disconnecting')
+            check(point.x() >= 0 and point.y() >= 83 and point.x() + obj.width() <= window.width() + 1 and point.y() + obj.height() <= window.height() - 38,
+                  'Compact HUD stays within content area: ' + name)
         window.setWidth(1360)
         window.setHeight(900)
         for page in ('firmware', 'duello', 'console'):

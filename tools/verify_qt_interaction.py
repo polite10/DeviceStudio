@@ -1,7 +1,7 @@
 """Exercise real QML pointer/keyboard interaction across background refreshes.
 
-Uses only a fake serial device. Run with QT_QPA_PLATFORM=offscreen and
-QT_QUICK_BACKEND=software for headless QA. No physical port or Flash is touched.
+Uses only a fake serial device and the native Qt renderer. No physical port
+or Flash is touched; the embedded View3D requires an RHI GPU backend.
 """
 from copy import deepcopy
 import json
@@ -15,13 +15,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from PySide6.QtCore import QObject, QPoint, QPointF, Qt, QEvent, QMetaObject
-from PySide6.QtQuick import QQuickWindow
-from PySide6.QtQml import QQmlExpression
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from shiboken6 import getCppPointer, isValid
 
 from device_studio.qt_app import create_app
+from device_studio.windowing import activate_window
 from device_studio.qt_controller import StudioController
 
 
@@ -103,11 +102,11 @@ def main():
         pump(.1)
 
     try:
-        window.requestActivate()
+        activate_window(window)
         pump(.25)
         bridge.connectDevice()
         wait(lambda: bridge.state['connected'] and not bridge.state['busy'])
-        bridge.navigate('adas')
+        bridge.navigate('game')
         pump(.15)
 
         # A normal human click can span a status update; it must not be lost
@@ -126,44 +125,18 @@ def main():
                            Qt.KeyboardModifier.NoModifier, position)
         pump(.15)
         check(bridge.state['page'] == 'firmware', 'Release completes the held navigation click')
-        click(item('nav_adas'))
-        check(bridge.state['page'] == 'adas', 'Navigation remains usable after refresh')
+        click(item('nav_game'))
+        check(bridge.state['page'] == 'game', 'Navigation remains usable after refresh')
 
-        # An open ComboBox popup is a user interaction state, not telemetry.
-        selector = item('scenarioSelector')
-        selector_address = getCppPointer(selector)[0]
-        click(selector)
-        expression = QQmlExpression(engine.rootContext(), selector, 'popup')
-        popup, _ = expression.evaluate()
-        check(not expression.hasError() and popup is not None,
-              'Scenario popup is inspectable through its real QML property')
-        check(bool(popup.property('visible')), 'Scenario popup opens with a real mouse click')
+        viewport = item('driveViewport')
+        viewport_address = getCppPointer(viewport)[0]
         initial_status = device.status_count
         pump(1.4)
-        check(device.status_count > initial_status, 'Heartbeat occurred while scenario popup was open')
-        check(isValid(selector) and getCppPointer(item('scenarioSelector'))[0] == selector_address,
-              'Scenario control identity is stable during refresh')
-        check(bool(popup.property('visible')), 'Scenario popup remains open across refresh')
-        QTest.keyClick(window, Qt.Key.Key_Escape)
-        pump(.1)
-
-        # Preserve uncommitted text, focus and cursor in an editable value.
-        speed = item('targetSpeed')
-        editor = speed.property('contentItem')
-        click(editor)
-        QMetaObject.invokeMethod(editor, 'selectAll', Qt.ConnectionType.DirectConnection)
-        for key in (Qt.Key.Key_1, Qt.Key.Key_2, Qt.Key.Key_3):
-            QTest.keyClick(window, key)
-        pump(.1)
-        check(str(editor.property('text')) == '123', 'Speed editor accepts a keyboard draft: ' + str(editor.property('text')))
-        cursor = editor.property('cursorPosition')
-        pump(1.4)
-        check(str(editor.property('text')) == '123', 'Uncommitted speed draft survives heartbeat')
-        check(bool(editor.property('activeFocus')) and editor.property('cursorPosition') == cursor,
-              'Speed editor keeps focus and cursor across heartbeat')
-        QTest.keyClick(window, Qt.Key.Key_Return)
-        wait(lambda: bridge.state['targetKmh'] == 123)
-        check(bridge.state['targetKmh'] == 123, 'Committing the draft updates controller options')
+        check(device.status_count > initial_status, 'Heartbeat continues with the embedded 3D scene')
+        check(isValid(viewport) and getCppPointer(item('driveViewport'))[0] == viewport_address,
+              'Background refresh preserves the same 3D viewport')
+        check(window.findChild(QObject, 'scenarioSelector') is None,
+              'Removed ADASLab settings are absent from the live UI')
 
         click(item('nav_console'))
         field = item('commandField')
@@ -177,6 +150,12 @@ def main():
         check(bool(field.property('activeFocus')) and field.property('selectedText') == selected,
               'Console text selection and focus survive status updates')
         check(not bridge.state['busy'], 'Background refresh leaves command controls enabled')
+        address = getCppPointer(field)[0]
+        QTest.keyClick(window, Qt.Key.Key_Right)
+        QTest.keyClick(window, Qt.Key.Key_1)
+        pump(1.4)
+        check(str(field.property('text')).upper() == 'HELLO1', 'An unfinished command draft survives another heartbeat: ' + str(field.property('text')))
+        check(getCppPointer(item('commandField'))[0] == address, 'Command editor identity remains stable')
     finally:
         bridge.stopOperation()
         wait(lambda: not bridge.state['busy'])

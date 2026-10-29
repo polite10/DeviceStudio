@@ -1,0 +1,55 @@
+{
+  "verified_at": "2026-10-29T10:44:41.133308+00:00",
+  "interface": "Studio embedded Qt Quick 3D View3D",
+  "graphics_api": "Metal",
+  "platform": "macOS Apple Silicon",
+  "unit_tests": {
+    "passed": true,
+    "count": 100
+  },
+  "qml_lint": {
+    "passed": true,
+    "warnings": 0
+  },
+  "arm": {
+    "passed": true,
+    "checks": 57,
+    "watch_touch": "actual compiled adas_game_touch handler"
+  },
+  "hardware": {
+    "passed": true,
+    "checks": 48,
+    "firmware": "ADASLab v2, ID 3",
+    "watch_requests": "existing G/H UART protocol equivalents; physical finger not automated"
+  },
+  "stable_interaction": {
+    "passed": true,
+    "checks": 12
+  },
+  "preserved_pages": {
+    "passed": true,
+    "checks": 37
+  },
+  "window_count": 1,
+  "external_game_process": false,
+  "flash_written": false,
+  "removed_views": [
+    "old 2D traffic game",
+    "ADASLab experiment/graph"
+  ],
+  "watch_owned_settings": [
+    "mode",
+    "ACC",
+    "exact target speed (0–6000 cm/s)",
+    "headway"
+  ],
+  "commands": [
+    "./Start.command",
+    "./Start.command --game",
+    "./Start.command --game-sim"
+  ],
+  "screenshot": "docs/adaslab-studio-3d.png",
+  "limitations": [
+    "Windows was not run on this host"
+  ]
+}

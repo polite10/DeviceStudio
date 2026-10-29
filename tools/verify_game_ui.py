@@ -1,8 +1,9 @@
-"""Exercise real QML mouse/keyboard controls against the compiled ARM firmware.
+"""Verify the embedded Qt Quick 3D scene with real keyboard events and C firmware.
 
-Defaults to ARM simulation. --backend hardware --port PORT uses an already
-installed v2 board. Neither backend writes Flash. Use QT_QPA_PLATFORM=offscreen
-QT_QUICK_BACKEND=software for headless QA.
+Default: compiled ARM firmware, including the watch's actual touch handler.
+--backend hardware --port PORT: existing board, G/H protocol equivalents of
+watch actions. No Flash writes. Reports and window captures go to capture-dir.
+Run with native Qt RHI (Metal on macOS); the software backend cannot render 3D.
 """
 import argparse
 import json
@@ -15,58 +16,53 @@ sys.path.insert(0, str(ROOT))
 
 from PySide6.QtCore import QObject, QPoint, QEvent, Qt, qInstallMessageHandler
 from PySide6.QtGui import QKeyEvent
-from PySide6.QtQuick import QQuickWindow, QQuickItem
+from PySide6.QtQuick import QQuickItem
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
-
 from device_studio.qt_app import create_app
+from device_studio.windowing import activate_window
 from device_studio.qt_controller import StudioController
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--capture-dir', type=Path, default=ROOT / 'build/game-ui-qa')
-    parser.add_argument('--backend', choices=('arm','hardware'), default='arm')
-    parser.add_argument('--port', help='Physical VCP port; required with --backend hardware')
+    parser.add_argument('--capture-dir', type=Path, default=ROOT / 'build/embedded-3d-qa')
+    parser.add_argument('--backend', choices=('arm', 'hardware'), default='arm')
+    parser.add_argument('--port')
     args = parser.parse_args()
     if args.backend == 'hardware' and not args.port:
         parser.error('--port is required with --backend hardware')
     args.capture_dir.mkdir(parents=True, exist_ok=True)
-    app = QApplication.instance() or QApplication(['game-ui-qa'])
-    messages = []
-
-    def qt_message(kind, context, text):
-        if any(token in text for token in ('TypeError', 'ReferenceError', 'Binding loop',
-                                           'Unable to assign', 'Cannot assign', 'does not support customization')):
-            messages.append(text)
-        elif 'Populating font family aliases' not in text:
-            print(text, file=sys.stderr)
-
-    qInstallMessageHandler(qt_message)
+    app = QApplication(['embedded-3d-qa'])
+    errors = []
+    def message(kind, context, text):
+        if any(token in text for token in ('TypeError', 'ReferenceError', 'Binding loop', 'Unable to assign',
+                                           'Cannot assign', 'Failed to load', 'not functional', 'Failed to create')):
+            errors.append(text)
+        print(text, file=sys.stderr)
+    qInstallMessageHandler(message)
     controller = StudioController(arm_sim=args.backend == 'arm', start_timers=False)
-    if args.port and args.backend == 'hardware':
-        index = next((i for i, port in enumerate(controller.state['ports']) if port['device'] == args.port), None)
-        if index is None:
-            raise RuntimeError('Requested physical port was not found: ' + args.port)
+    if args.port:
+        index = next(i for i, port in enumerate(controller.state['ports']) if port['device'] == args.port)
         controller.selectPort(index)
-    app, engine, controller = create_app(controller=controller, argv=['game-ui-qa'])
+    app, engine, controller = create_app(controller=controller, argv=['embedded-3d-qa'])
     window = engine.rootObjects()[0]
     report = dict(backend='ARM_SIM' if args.backend == 'arm' else 'STM32_UART', checks=[], screenshots=[])
 
-    def pump(seconds=.08):
-        deadline = time.monotonic() + seconds
-        while time.monotonic() < deadline:
+    def pump(seconds=.1):
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
             app.processEvents()
-            time.sleep(.004)
+            time.sleep(.003)
 
     def wait(predicate, description, timeout=8):
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
             app.processEvents()
             if predicate():
                 return
-            time.sleep(.004)
-        raise AssertionError(description + ': ' + str(controller.gameState) + '\n' + controller.state['statusMessage'] + ' active=' + str(window.isActive()) + ' operation=' + str(controller._active_operation))
+            time.sleep(.003)
+        raise AssertionError(description + ': ' + controller.state['statusMessage'] + ' ' + str(controller.gameState))
 
     def check(condition, description):
         if not condition:
@@ -80,158 +76,184 @@ def main():
             raise AssertionError('Missing QML object: ' + name)
         return result
 
-    def click(name):
-        target = item(name)
-        check(target.property('enabled') and target.property('visible'), 'Interactive control available: ' + name)
-        point = target.mapToScene(target.boundingRect().center())
-        check(0 <= point.x() < window.width() and 0 <= point.y() < window.height(), 'Mouse target in window: ' + name)
-        QTest.mouseClick(window, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
-                         QPoint(round(point.x()), round(point.y())))
-        pump(.06)
-
     def capture(name):
-        pump(.08)
+        pump(.12)
         path = args.capture_dir / (name + '.png')
-        image = window.grabWindow()
-        check(not image.isNull() and image.save(str(path)), 'Rendered QML scene: ' + name)
+        frame = window.grabWindow()
+        check(not frame.isNull() and frame.save(str(path)), 'Real Studio window capture: ' + name)
         report['screenshots'].append(str(path))
 
-    def start():
-        window.raise_()
-        window.requestActivate()
-        wait(lambda: window.isActive(), 'QA window could not gain foreground focus')
-        click('gameStartButton')
-        wait(lambda: controller.gameState['running'] and controller.gameState['elapsed'] > .1,
-             'Game did not start')
-        wait(lambda: item('gameViewport').property('activeFocus'), 'Driving viewport did not receive keyboard focus')
+    def idle():
+        wait(lambda: controller._worker is None and not controller.state['busy'], 'Worker did not finish')
 
-    def pause_with_space():
+    def command(command):
+        idle()
+        controller._job('command', lambda: controller._device.runtime(command))
+        idle()
+
+    def heartbeat():
+        idle()
+        controller._heartbeat()
+        wait(lambda: controller._active_operation != 'heartbeat', 'Panel read did not finish')
+        pump(.03)
+
+    def watch_action(action):
+        idle()
+        if args.backend == 'arm':
+            def touch():
+                check(controller._device.call('adas_game_touch', action) == 1,
+                      'Actual ARM watch touch handler accepted action ' + str(action))
+                return controller._device.runtime('J')
+            controller._job('command', touch)
+            idle()
+        else:
+            if action != 6:
+                raise ValueError('Hardware configuration uses G protocol, touch injection is ARM-only')
+            command('H:' + str(int(not controller.gameState['running'])))
+        heartbeat()
+
+    def start():
+        activate_window(window)
+        wait(window.isActive, 'Studio window did not become active')
+        watch_action(6)
+        wait(lambda: controller.gameState['running'] and controller.gameState['elapsed'] >= .1, 'Watch BASLAT did not start Studio')
+        wait(lambda: item('driveViewport').property('activeFocus'), '3D view did not receive keyboard focus')
+
+    def pause():
         QTest.keyClick(window, Qt.Key.Key_Space)
-        wait(lambda: not controller.state['busy'], 'Space did not finish game pause')
-        check(not controller.gameState['running'] and controller.gameState['status'] == 'paused',
-              'Space pauses the actual game worker and C firmware')
+        idle()
+        check(not controller.gameState['running'], 'Space pauses the worker and releases pedals')
+
+    def configure(mode, acc=False):
+        command(f'G:{mode}:{int(acc)}:3000:2200')
+        heartbeat()
+        check(controller.gameState['mode'] == ['active', 'warn', 'off'][mode], 'Watch mode is displayed in Studio: ' + str(mode))
+        check(controller.gameState['targetKmh'] == 108 and controller.gameState['headwayMs'] == 2200,
+              'Watch target and headway are read back without PC controls')
+        controller._game_world = None
 
     try:
-        window.requestActivate()
-        pump(.2)
+        activate_window(window)
+        pump(.25)
         controller.connectDevice()
-        wait(lambda: not controller.state['busy'], 'ARM connection did not complete')
-        check(controller.state['app'] == 'ADASLab' and controller.gameState['ready'],
-              'Compiled ADASLab v2 is connected and game-ready')
-        controller.navigate('game')
-        pump(.1)
-        capture('game-ready')
-
-        # Every mode change is a real mouse interaction with a stable QML button.
-        for mode, object_name in [('warn', 'gameModeWarn'), ('off', 'gameModeOff'), ('active', 'gameModeActive')]:
-            click(object_name)
-            wait(lambda: controller.gameState['mode'] == mode, 'Mode selection did not reach controller')
-            pump(.08)  # Let the short ARM configuration transaction finish.
-            check(controller.gameState['mode'] == mode, 'Mouse selects mode: ' + mode)
-        seed = controller.gameState['seed']
-        controller.setGameOption('accEnabled', False)
-        pump(.08)
+        idle()
+        command('H:0')  # Clear a pre-existing watch request before controlled QA.
+        heartbeat()
+        check(controller.gameState['ready'] and controller.state['page'] == 'game', 'ADASLab v2 routes directly to the embedded 3D view')
+        check(item('embeddedDriveScene').metaObject().className().startswith('QQuick3DViewport'), 'Scene is a real Qt Quick 3D View3D inside Studio')
+        check(window.findChild(QObject, 'gameView') is None and window.findChild(QObject, 'scenarioSelector') is None,
+              'Old 2D game and ADASLab experiment controls are absent')
+        check(controller._game3d_process is None and controller._game3d_bridge is None, 'No external Godot window or TCP renderer is opened')
+        check(len(app.topLevelWindows()) == 1, 'There is a single Studio application window')
+        configure(0)
+        capture('studio-3d-ready')
+        viewport = item('driveViewport')
         start()
-        viewport = item('gameViewport')
-        initial_speed = controller.gameState['egoKmh']
+        check(controller.gameState['running'], 'Watch BASLAT starts the embedded game through panel polling')
+        speed = controller.gameState['egoKmh']
         QTest.keyPress(window, Qt.Key.Key_W)
         pump(.7)
-        check(controller.gameState['egoKmh'] > initial_speed + 2,
-              'Holding W accelerates the car through live QML input')
+        check(controller.gameState['egoKmh'] > speed + 2, 'W accelerates through actual C firmware samples')
         QTest.keyPress(window, Qt.Key.Key_Up)
         QTest.keyRelease(window, Qt.Key.Key_W)
-        speed_after_w_release = controller.gameState['egoKmh']
+        speed = controller.gameState['egoKmh']
         pump(.4)
-        check(controller.gameState['egoKmh'] > speed_after_w_release + 1,
-              'Releasing W retains gas while Up is independently held')
+        check(controller.gameState['egoKmh'] > speed + 1, 'Up remains held independently after W release')
         QTest.keyRelease(window, Qt.Key.Key_Up)
-        wait(lambda: controller.gameState['accelMps2'] < 0, 'Gas remained stuck after both aliases released')
-        check(True, 'Releasing both gas aliases returns to coasting')
-
-        QTest.keyPress(window, Qt.Key.Key_A)
-        QTest.keyRelease(window, Qt.Key.Key_A)
-        wait(lambda: controller.gameState['targetLane'] == 0, 'A did not request left lane')
+        wait(lambda: controller.gameState['accelMps2'] < 0, 'Throttle did not release')
+        speed = controller.gameState['egoKmh']
+        QTest.keyPress(window, Qt.Key.Key_S)
+        pump(.3)
+        QTest.keyRelease(window, Qt.Key.Key_S)
+        check(controller.gameState['egoKmh'] < speed - 1, 'S brakes through live QML input')
+        QTest.keyClick(window, Qt.Key.Key_A)
+        wait(lambda: controller.gameState['targetLane'] == 0, 'A did not steer left')
         QTest.keyPress(window, Qt.Key.Key_D)
-        wait(lambda: controller.gameState['targetLane'] == 1, 'D did not request right lane')
+        wait(lambda: controller.gameState['targetLane'] == 1, 'D did not steer right')
         for _ in range(6):
-            app.sendEvent(window, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_D,
-                                           Qt.KeyboardModifier.NoModifier, 'd', True, 1))
-        pump(.15)
-        check(controller.gameState['targetLane'] == 1, 'Keyboard auto-repeat cannot trigger an extra lane change')
+            app.sendEvent(window, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_D, Qt.KeyboardModifier.NoModifier, 'd', True, 1))
+        pump(.2)
+        check(controller.gameState['targetLane'] == 1, 'Auto-repeat does not create extra lane changes')
         QTest.keyRelease(window, Qt.Key.Key_D)
-        check(viewport is item('gameViewport') and viewport.property('activeFocus'),
-              'Telemetry updates preserve the same viewport and keyboard focus')
-        capture('game-running')
-        pause_with_space()
-
-        # Focus loss must clear an intentionally held key before a resume.
+        check(item('driveViewport') is viewport and viewport.property('activeFocus'), 'Live telemetry preserves viewport identity and keyboard focus')
+        old_camera = item('drive3DView').property('hoodCamera')
+        QTest.keyClick(window, Qt.Key.Key_C)
+        check(item('drive3DView').property('hoodCamera') != old_camera, 'C switches the 3D camera in the same window')
+        QTest.keyClick(window, Qt.Key.Key_C)
+        capture('studio-3d-driving')
+        pause()
         start()
         QTest.keyPress(window, Qt.Key.Key_W)
-        pump(.2)
-        # Focusing an ancestor retains its nested focus scope's current child;
-        # a sibling is required to produce a genuine active-focus loss.
-        focus_sink = QQuickItem(window.contentItem())
-        focus_sink.setObjectName('qaFocusSink')
-        focus_sink.setWidth(1)
-        focus_sink.setHeight(1)
-        focus_sink.forceActiveFocus(Qt.FocusReason.OtherFocusReason)
-        check(not viewport.property('activeFocus'), 'A sibling focus target removes driving focus')
-        wait(lambda: not controller.state['busy'], 'Focus loss did not finish pause')
-        check(not controller.gameState['running'], 'Focus loss pauses instead of leaving an unattended car')
+        pump(.15)
+        sink = QQuickItem(window.contentItem())
+        sink.setSize(viewport.size())
+        sink.forceActiveFocus(Qt.FocusReason.OtherFocusReason)
+        idle()
+        check(not controller.gameState['running'], 'Loss of keyboard focus pauses driving')
         QTest.keyRelease(window, Qt.Key.Key_W)
         start()
-        wait(lambda: controller.gameState['accelMps2'] < 0, 'A held gas key leaked across focus-loss pause')
-        check(True, 'Resuming after focus loss has no stuck throttle')
-        pause_with_space()
-
-        # Repeatable seed and road reset; the original paused run had advanced.
-        old_elapsed = controller.gameState['elapsed']
-        controller.restartGame()
-        wait(lambda: controller.gameState['running'] and .05 <= controller.gameState['elapsed'] < old_elapsed,
-             'Restart did not reset the traffic timeline')
-        check(controller.gameState['seed'] == seed and {c['id'] for c in controller.gameState['traffic']} == {1, 2, 3, 4},
-              'Restart preserves the selected seed and replays initial traffic identities')
-        wait(lambda: item('gameViewport').property('activeFocus'), 'Restart focus did not settle')
-        pause_with_space()
-
-        # Warn/off are playable and never enable an actuator intervention.
-        for mode, object_name in [('warn', 'gameModeWarn'), ('off', 'gameModeOff')]:
-            click(object_name)
-            wait(lambda: controller.gameState['mode'] == mode, 'Support mode did not settle')
-            pump(.08)
+        wait(lambda: controller.gameState['accelMps2'] < 0, 'Gas leaked across pause')
+        check(True, 'Watch resume has no stuck accelerator')
+        pause()
+        # Exercise the watch pause path while the worker owns the port. ARM's
+        # touch is called between samples via the snapshot callback on its owner.
+        start()
+        if args.backend == 'arm':
+            original = controller._game_runner.emit
+            def pause_from_card(snapshot):
+                original(snapshot)
+                controller._device.call('adas_game_touch', 6)
+                controller._game_runner.emit = original
+            controller._game_runner.emit = pause_from_card
+            idle()
+            check(controller.gameState['status'] == 'paused', 'Actual watch pause touch stops the embedded game')
+        else:
+            # H cannot be sent concurrently with the serial worker; card pause
+            # itself is covered by the compiled touch-handler test above.
+            pause()
+        for mode in (1, 2):
+            configure(mode)
             start()
-            pump(.25)
-            check(not controller.gameState['aeb'], mode + ' mode does not apply AEB')
-            if mode == 'off':
+            pump(.3)
+            check(not controller.gameState['aeb'], 'Warning/off mode cannot actuate AEB: ' + str(mode))
+            if mode == 2:
                 check(not controller.gameState['warning'], 'Off mode hides ADAS warnings')
-            pause_with_space()
-
+            pause()
+        configure(0, True)
+        start()
+        wait(lambda: controller.gameState['egoKmh'] > 52, 'ACC did not accelerate')
+        check(controller.gameState['accelMps2'] > 0, 'ACC from the watch accelerates without a held gas key')
+        pause()
+        configure(0)
+        start()
+        QTest.keyPress(window, Qt.Key.Key_W)
+        wait(lambda: controller.gameState['aeb'], 'C firmware did not engage AEB', 22)
+        check(controller.gameState['accelMps2'] < -7, 'AEB overrides a held gas key with real MCU emergency braking')
+        capture('studio-3d-aeb')
+        QTest.keyRelease(window, Qt.Key.Key_W)
+        pause()
         window.setWidth(1000)
         window.setHeight(720)
-        pump(.12)
-        capture('game-compact')
-        click('gameModeActive')
-        pump(.08)
+        pump(.2)
         start()
-        check(item('gameViewport').property('activeFocus'), 'Compact layout retains driving focus')
-        player = item('gamePlayerCar')
-        check(player.y() >= 0 and player.y() + player.height() <= item('gameViewport').height(),
-              'Compact player vehicle is fully visible inside the road')
-        for name in ('gameSpeedReadout', 'gameGapReadout', 'gameTtcReadout',
-                     'gameAccelReadout', 'gameScoreReadout'):
-            readout = item(name)
-            top_left = readout.mapToScene(readout.boundingRect().topLeft())
-            check(top_left.y() >= 83 and top_left.y() + readout.height() <= window.height() - 38,
-                  'Compact HUD remains above application footer: ' + name)
-        capture('game-compact-running')
-        pause_with_space()
-        check(not messages, 'No QML runtime errors during mouse, keyboard and telemetry updates')
+        check(viewport.property('activeFocus'), 'Minimum window size retains keyboard focus')
+        for name in ('driveSpeed', 'watchMode', 'watchTarget', 'watchHeadway'):
+            obj = item(name)
+            point = obj.mapToScene(obj.boundingRect().topLeft())
+            check(83 <= point.y() < window.height() - 38, 'Compact layout keeps control visible: ' + name)
+        capture('studio-3d-compact')
+        pause()
+        check(not errors, 'No QML, model-loading, shader or binding errors: ' + str(errors))
+        check(window.rendererInterface().graphicsApi().name != 'Software', '3D scene uses native GPU rendering')
         report.update(passed=True, graphics_api=window.rendererInterface().graphicsApi().name,
-                      elapsed=controller.gameState['elapsed'], mode=controller.gameState['mode'])
+                      window_count=len(app.topLevelWindows()), external_game_process=False,
+                      watch_test='actual ARM touch handler' if args.backend == 'arm' else 'hardware G/H protocol equivalent')
     finally:
         controller.releaseGameKeys()
         controller.pauseGame()
-        wait(lambda: not controller.state['busy'], 'Worker cleanup timed out', 15)
+        idle()
+        # Leave the board in its usual ready state with its previous default settings.
+        command('G:0:0:2500:1800')
         controller.requestClose()
         window.hide()
         engine.deleteLater()
