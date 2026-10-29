@@ -16,7 +16,7 @@ ApplicationWindow {
     color: "#0b121c"
     font.family: Qt.platform.os === "osx" ? "Helvetica Neue" : "Segoe UI"
     font.pixelSize: 13
-    property var s: window.studio ? window.studio.state : ({page:"adas", connected:false, busy:false, running:false, operation:"idle", portIndex:-1})
+    property var s: window.studio ? window.studio.state : ({page:"game", connected:false, busy:false, running:false, operation:"idle", portIndex:-1})
     readonly property var l: window.studio ? window.studio.liveState : ({})
     readonly property var t: window.l.telemetry || ({})
     readonly property bool hasMeasurements: window.s.connected && window.s.app === "ADASLab" && window.t.mode !== "WAITING"
@@ -25,21 +25,17 @@ ApplicationWindow {
     readonly property color accentColor: "#63dec2"
     readonly property string monoFont: Qt.platform.os === "osx" ? "Menlo" : "Consolas"
     property bool logsOpen: false
-    property string currentPage: window.s.page || "adas"
-    onCurrentPageChanged: if (pageScroll && pageScroll.contentItem) pageScroll.contentItem.contentY = 0
+    property string currentPage: window.s.page || "game"
+    onCurrentPageChanged: {
+        if (pageScroll) {
+            const flick = pageScroll.contentItem as Flickable
+            if (flick) flick.contentY = 0
+        }
+    }
 
     function number(value, precision) { return Number(value || 0).toFixed(precision) }
     function pageTitle() {
-        return ({game:"Trafik oyunu",adas:"ADASLab",firmware:"Firmware yönetimi",duello:"Düello",console:"Komut konsolu"})[window.s.page] || "ADASLab"
-    }
-    function scenarioIndex() {
-        var list = window.studio.scenarios || []
-        for (var i = 0; i < list.length; i++) if (list[i].value === window.s.scenario) return i
-        return 0
-    }
-    function scenarioDescription() {
-        var list = window.studio.scenarios || [], index = scenarioIndex()
-        return list.length ? list[index].description : ""
+        return ({game:"3B Sürüş",firmware:"Firmware yönetimi",duello:"Düello",console:"Komut konsolu"})[window.s.page] || "3B Sürüş"
     }
     onActiveChanged: if (window.studio) window.studio.setWindowActive(active)
     onClosing: function(close) { close.accepted = window.studio.requestClose() }
@@ -93,30 +89,6 @@ ApplicationWindow {
             leftPadding: 12; rightPadding: 30; verticalAlignment: Text.AlignVCenter; elide: Text.ElideMiddle
         }
     }
-    component Toggle: Switch {
-        id: toggle
-        implicitHeight: 30
-        spacing: 8
-        indicator: Rectangle {
-            implicitWidth: 32; implicitHeight: 19
-            x: toggle.leftPadding; y: (toggle.height - height) / 2
-            radius: 10; color: toggle.checked ? "#63dec2" : "#344957"
-            border.width: toggle.activeFocus ? 1 : 0; border.color: "#d3fff3"
-            opacity: toggle.enabled ? 1 : .4
-            Rectangle {
-                width: 13; height: 13; y: 3
-                x: toggle.checked ? 16 : 3
-                radius: 7; color: toggle.checked ? "#10251f" : "#a3b2bc"
-                Behavior on x { NumberAnimation { duration: 120 } }
-            }
-        }
-        contentItem: Text {
-            text: toggle.text; color: toggle.enabled ? "#c9d7e1" : "#687e8e"
-            font.family: window.font.family; font.pixelSize: 12
-            leftPadding: toggle.indicator.width + toggle.spacing
-            verticalAlignment: Text.AlignVCenter
-        }
-    }
     component Metric: ColumnLayout {
         id: metric
         Layout.fillWidth: true
@@ -160,8 +132,7 @@ ApplicationWindow {
                 Text { text: "ÇALIŞMA ALANI"; color: "#647d8f"; font.family: window.font.family; font.pixelSize: 11; font.letterSpacing: 1.5; Layout.bottomMargin: 8 }
                 Repeater {
                     model: [
-                        {page:"game",title:"Trafik oyunu",subtitle:"Klavyeyle sürüş",symbol:"G"},
-                        {page:"adas",title:"ADASLab",subtitle:"Sürüş deneyleri",symbol:"A"},
+                        {page:"game",title:"3B Sürüş",subtitle:"Saatten başlat · WASD",symbol:"3D"},
                         {page:"firmware",title:"Firmware",subtitle:"Yükleme ve kurtarma",symbol:"F"},
                         {page:"duello",title:"Düello",subtitle:"Karakter kontrolü",symbol:"D"},
                         {page:"console",title:"Komut konsolu",subtitle:"Cihazla iletişim",symbol:">"}
@@ -218,7 +189,7 @@ ApplicationWindow {
                         objectName: "pageTitleColumn"
                         Layout.fillWidth: true; Layout.fillHeight: true; Layout.maximumWidth: 100000
                         Text { objectName: "pageTitle"; y: window.width > 1210 ? 17 : 27; text: window.pageTitle(); color: window.textColor; font.family: window.font.family; font.pixelSize: 23; font.weight: Font.DemiBold }
-                        Text { y: 50; visible: window.width > 1210; text: window.s.page === "game" ? "Direksiyon sizde. ADAS desteğini üç modda deneyin." : window.s.page === "adas" ? "Sürüş destek sistemlerini gözlemleyin ve sınayın." : window.s.page === "firmware" ? "Firmware paketleri ve bootloader yönetimi." : window.s.page === "duello" ? "Kart üzerindeki karakteri gerçek zamanlı yönetin." : "Uygulama komutları ve cihazın JSON durumu."; color: window.mutedColor; font.family: window.font.family; font.pixelSize: 11 }
+                        Text { y: 50; visible: window.width > 1210; text: window.s.page === "game" ? "Saatten BASLAT’a dokunun, WASD veya yön tuşlarıyla sürün." : window.s.page === "firmware" ? "Firmware paketleri ve bootloader yönetimi." : window.s.page === "duello" ? "Kart üzerindeki karakteri gerçek zamanlı yönetin." : "Uygulama komutları ve cihazın JSON durumu."; color: window.mutedColor; font.family: window.font.family; font.pixelSize: 11 }
                     }
                     SelectBox {
                         id: portBox
@@ -250,113 +221,7 @@ ApplicationWindow {
                 ColumnLayout {
                     width: pageScroll.availableWidth
                     spacing: 22
-                    GameView { Layout.fillWidth: true; studio: window.studio; visible: window.s.page === "game" }
-
-                    ColumnLayout {
-                        visible: window.s.page === "adas"
-                        Layout.fillWidth: true; spacing: 20
-                        RowLayout {
-                            Layout.fillWidth: true; spacing: 20
-                            Panel {
-                                Layout.fillWidth: true; Layout.preferredHeight: 340
-                                clip: true
-                                RoadView { anchors.fill: parent; anchors.margins: 1; telemetry: window.t; running: window.s.running; connected: window.s.connected && window.s.app === "ADASLab"; simulated: String(window.s.backendLabel || "").indexOf("simülasyonu") >= 0; fontFamily: window.font.family }
-                            }
-                            Panel {
-                                Layout.preferredWidth: window.width < 1200 ? 250 : 280
-                                Layout.preferredHeight: 340
-                                ColumnLayout {
-                                    anchors.fill: parent; anchors.margins: 20; spacing: 8
-                                    LabelText { text: "Deney ayarları"; font.pixelSize: 14; font.weight: Font.DemiBold }
-                                    LabelText { text: "SENARYO"; color: "#7893a5"; font.pixelSize: 11; font.letterSpacing: 1.2; Layout.topMargin: 4 }
-                                    SelectBox {
-                                        objectName: "scenarioSelector"
-                                        Layout.fillWidth: true
-                                        model: window.studio.scenarios; textRole: "text"; currentIndex: window.scenarioIndex()
-                                        enabled: !window.s.busy
-                                        onActivated: function(index) { window.studio.setOption("scenario", window.s.scenarios[index].value) }
-                                    }
-                                    LabelText { text: window.scenarioDescription(); color: "#839cac"; font.pixelSize: 11; Layout.fillWidth: true; Layout.preferredHeight: 29 }
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        LabelText { text: "Hedef hız"; color: "#b5c7d3"; Layout.fillWidth: true; font.pixelSize: 11 }
-                                        SpinBox {
-                                            objectName: "targetSpeed"
-                                            from: 0; to: 200; value: Number(window.s.targetKmh || 0); editable: true
-                                            enabled: !window.s.busy; Layout.preferredWidth: 105; implicitHeight: 33
-                                            palette.text: "#e5edf3"; palette.base: "#132130"; palette.button: "#213342"; palette.buttonText: "#e5edf3"
-                                            onValueModified: window.studio.setOption("targetKmh", value)
-                                        }
-                                        LabelText { text: "km/sa"; color: "#718d9f"; font.pixelSize: 11 }
-                                    }
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        Toggle { text: "ACC"; checked: Boolean(window.s.accEnabled); enabled: !window.s.busy; onToggled: window.studio.setOption("accEnabled", checked); ToolTip.visible: hovered; ToolTip.text: "Hedef hızı ve takip mesafesini korur" }
-                                        Item { Layout.fillWidth: true }
-                                        Toggle { text: "AEB"; checked: Boolean(window.s.aebEnabled); enabled: !window.s.busy; onToggled: window.studio.setOption("aebEnabled", checked); ToolTip.visible: hovered; ToolTip.text: "Acil durumda fren isteği üretir" }
-                                    }
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        Toggle { text: "Gürültü"; checked: Boolean(window.s.noiseEnabled); enabled: !window.s.busy; onToggled: window.studio.setOption("noiseEnabled", checked) }
-                                        Item { Layout.fillWidth: true }
-                                        Toggle { text: "Tekrar"; checked: Boolean(window.s.repeatEnabled); enabled: !window.s.busy; onToggled: window.studio.setOption("repeatEnabled", checked) }
-                                    }
-                                    Item { Layout.fillHeight: true }
-                                    ActionButton {
-                                        objectName: "experimentButton"
-                                        Layout.fillWidth: true
-                                        text: window.s.running ? "Deneyi duraklat" : "Deneyi başlat"
-                                        primary: !window.s.running
-                                        enabled: window.s.running || (!window.s.busy && window.s.connected && window.s.app === "ADASLab")
-                                        onClicked: window.s.running ? window.studio.stopOperation() : window.studio.startExperiment()
-                                    }
-                                }
-                            }
-                        }
-                        RowLayout {
-                            Layout.fillWidth: true; spacing: 24
-                            Metric { Layout.fillWidth: true; label: "BİZİM HIZIMIZ"; value: window.hasMeasurements ? window.number(window.t.egoKmh, 1) : "—"; unit: "km/sa"; note: "Hedef " + window.number(window.s.targetKmh, 0) + " km/sa" }
-                            Rectangle { width: 1; height: 62; color: "#243341" }
-                            Metric { Layout.fillWidth: true; label: "TAKİP MESAFESİ"; value: window.hasMeasurements && window.t.present ? window.number(window.t.gapM, 1) : "—"; unit: "m"; note: window.hasMeasurements && window.t.present ? "Öndeki araç " + window.number(window.t.leadKmh, 1) + " km/sa" : "Önde araç ölçümü yok" }
-                            Rectangle { width: 1; height: 62; color: "#243341" }
-                            Metric { Layout.fillWidth: true; label: "ÇARPIŞMAYA KALAN"; value: window.hasMeasurements && Number(window.t.ttcSeconds) >= 0 ? window.number(window.t.ttcSeconds, 1) : "—"; unit: "s"; note: !window.hasMeasurements ? "Ölçüm bekleniyor" : Number(window.t.ttcSeconds) >= 0 ? "Sabit hız varsayımı" : "Yaklaşma yok" }
-                            Rectangle { width: 1; height: 62; color: "#243341" }
-                            Metric { Layout.fillWidth: true; label: "İVME / FREN İSTEĞİ"; value: window.hasMeasurements ? window.number(window.t.accelMps2, 2) : "—"; unit: "m/s²"; note: window.t.mode === "AEB" ? "Acil fren etkin" : Number(window.t.accelMps2) < 0 ? "Yavaşlama isteği" : "Kontrol çıkışı" }
-                        }
-                        Panel {
-                            Layout.fillWidth: true; Layout.preferredHeight: 183
-                            ColumnLayout {
-                                anchors.fill: parent; anchors.margins: 18; spacing: 8
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    LabelText { text: "Takip mesafesi"; font.pixelSize: 13; font.weight: Font.DemiBold }
-                                    LabelText { text: "Son 200 görünüm · metre"; color: "#70899b"; font.pixelSize: 11; Layout.leftMargin: 6 }
-                                    Item { Layout.fillWidth: true }
-                                    ActionButton { text: "CSV kaydet"; implicitHeight: 30; enabled: !window.s.running && (window.l.history || []).length > 0; onClicked: window.studio.exportCsv() }
-                                }
-                                TrendChart { Layout.fillWidth: true; Layout.fillHeight: true; history: window.l.history || []; fontFamily: window.font.family }
-                            }
-                        }
-                        RowLayout {
-                            Layout.fillWidth: true; spacing: 18
-                            LabelText { text: "RTT " + window.number(window.t.rttMs, 1) + " ms"; color: "#7c95a7"; font.pixelSize: 11 }
-                            LabelText { text: "Kontrol " + window.number(window.t.computeUs, 0) + " µs"; color: "#7c95a7"; font.pixelSize: 11 }
-                            LabelText { text: "GPU " + window.number(window.t.gpu, 0); color: "#7c95a7"; font.pixelSize: 11 }
-                            LabelText { text: "Kare " + window.number(window.t.frames, 0); color: "#7c95a7"; font.pixelSize: 11 }
-                            LabelText { text: "En uzun kare " + window.number(window.t.frameMaxMs, 0) + " ms"; color: "#7c95a7"; font.pixelSize: 11 }
-                            Item { Layout.fillWidth: true }
-                            LabelText { text: "50 ms aşımı: " + window.number(window.t.overruns, 0); color: Number(window.t.overruns) > 0 ? "#e9b96d" : "#7c95a7"; font.pixelSize: 11 }
-                        }
-                        Panel {
-                            visible: !window.s.connected || window.s.app !== "ADASLab"
-                            Layout.fillWidth: true; Layout.preferredHeight: offlineHint.implicitHeight + 34
-                            LabelText {
-                                id: offlineHint; anchors.fill: parent; anchors.margins: 17
-                                text: !window.s.connected ? "Başlamak için ST-LINK portunu seçip bağlanın. Kartta ADASLab yüklüyse deney kontrolleri etkinleşir." : "Kartta " + (window.s.app || "başka bir uygulama") + " çalışıyor. Firmware sayfasından ADASLab.dfw paketini yükleyin."
-                                color: "#a3bac9"; font.pixelSize: 12
-                            }
-                        }
-                    }
+                    Drive3DView { Layout.fillWidth: true; Layout.preferredHeight: Math.max(480, pageScroll.availableHeight); studio: window.studio; visible: window.s.page === "game" }
 
                     ColumnLayout {
                         visible: window.s.page === "firmware"
@@ -537,7 +402,7 @@ ApplicationWindow {
                     anchors.fill: parent; anchors.leftMargin: 24; anchors.rightMargin: 17; spacing: 10
                     Rectangle { width: 5; height: 5; radius: 3; color: window.s.statusTone === "error" ? "#ff7b87" : window.s.running ? "#63dec2" : "#6f899a" }
                     LabelText { text: window.s.statusMessage || window.s.connectionText || "Cihaz bağlantısı bekleniyor"; color: window.s.statusTone === "error" ? "#ffacb5" : "#8fa8ba"; font.pixelSize: 11; elide: Text.ElideRight; wrapMode: Text.NoWrap; Layout.fillWidth: true }
-                    LabelText { text: window.s.running ? "DENEY ÇALIŞIYOR" : window.s.busy ? "İŞLEM SÜRÜYOR" : "HAZIR"; color: window.s.running ? "#63dec2" : "#647f92"; font.pixelSize: 11; font.letterSpacing: 1 }
+                    LabelText { text: window.s.running ? "SÜRÜŞ ÇALIŞIYOR" : window.s.busy ? "İŞLEM SÜRÜYOR" : "HAZIR"; color: window.s.running ? "#63dec2" : "#647f92"; font.pixelSize: 11; font.letterSpacing: 1 }
                     ActionButton { text: window.logsOpen ? "Günlüğü gizle" : "İşlem günlüğü"; implicitHeight: 27; onClicked: window.logsOpen = !window.logsOpen }
                 }
             }
