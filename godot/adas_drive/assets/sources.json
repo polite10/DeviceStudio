@@ -1,0 +1,94 @@
+{
+  "downloaded": "2026-10-28",
+  "sources": [
+    {
+      "author": "Quaternius",
+      "title": "Realistic Car Pack \u2013 November 2018",
+      "source_url": "https://quaternius.com/packs/cars.html",
+      "download_page": "https://quaternius.itch.io/lowpoly-cars",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "archive_sha256": "af8f45d6e2135cc53870e5d0882cc41ca329bd87b9923b4773d471f161d2bdc7",
+      "files": [
+        {
+          "path": "vehicles/quaternius/LICENSE.txt",
+          "sha256": "83d8959f9fc56353ed571fbe2dc52e4bcd64508e2399501cd45ac2ce3df0bf8c",
+          "size": 364
+        },
+        {
+          "path": "vehicles/quaternius/NormalCar1.fbx",
+          "sha256": "61ae9bd52c3217738ae633444eec3435f244690d95ae0807d4dd7ca8d3be14fb",
+          "size": 72732
+        },
+        {
+          "path": "vehicles/quaternius/NormalCar2.fbx",
+          "sha256": "323865fe92ab7ef0a83394aa08ab2c00019a5134998466809210e3754768a09f",
+          "size": 75596
+        },
+        {
+          "path": "vehicles/quaternius/SUV.fbx",
+          "sha256": "7c3769a955ab0cb628d4225a6a1695593d5e011649e8e0455c79014aa7691749",
+          "size": 78076
+        },
+        {
+          "path": "vehicles/quaternius/SportsCar.fbx",
+          "sha256": "bd09dc9e7e1ab36a7b7868ae47c7202038fce83006bf00d2816c4273aaae6899",
+          "size": 75180
+        },
+        {
+          "path": "vehicles/quaternius/SportsCar2.fbx",
+          "sha256": "f3805ea1fc8d65fb250b2a6db3c6454b28e1dad033ae77b364760070f8a89877",
+          "size": 76044
+        },
+        {
+          "path": "vehicles/quaternius/Taxi.fbx",
+          "sha256": "45196b14ec0f17181a63227dcf666b7065911b3e5d98c5aa9f74293fc1fdf21f",
+          "size": 79612
+        },
+        {
+          "path": "vehicles/quaternius/mesh-notes.json",
+          "sha256": "2d13b0fa714d84d937c9f7ce4afebf83c712d5849022c7e66cdd5b82c482e5d2",
+          "size": 9217
+        }
+      ],
+      "modifications": "Original model files are unchanged; game-time material overrides, dimension normalization, wheel animation and orientation correction are applied by renderer code."
+    },
+    {
+      "author": "Kenney",
+      "title": "Car Kit",
+      "source_url": "https://kenney.nl/assets/car-kit",
+      "download_page": "https://kenney-assets.itch.io/car-kit",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "archive_sha256": "f8a69b83fbf94c9850079bc6e078ea3d8ba4c7393dd9f57f8ba544963d1b1d14",
+      "files": [
+        {
+          "path": "vehicles/kenney/LICENSE.txt",
+          "sha256": "068ebfb25d58425afa39fe4901dc0d74b9f2155a6b1c6f0487a7e986a50c706c",
+          "size": 710
+        },
+        {
+          "path": "vehicles/kenney/Textures/colormap.png",
+          "sha256": "96b3839b65f6c58894cd693a27384d0da35807c69d72b21afe68d901ed44052e",
+          "size": 11634
+        },
+        {
+          "path": "vehicles/kenney/delivery.glb",
+          "sha256": "a40e322fe1f208791aecfb0f164f1f3e5099dfd6d2ead86566258138eea3c72d",
+          "size": 240296
+        },
+        {
+          "path": "vehicles/kenney/truck.glb",
+          "sha256": "c3402b7d80837ab1da8aa61612c05d277288ad0c901cf7c8dc506484062700d0",
+          "size": 176376
+        },
+        {
+          "path": "vehicles/kenney/van.glb",
+          "sha256": "0f26d296cbab406f32e3802c9959a48c3a901d9a618ee77a2a502570068c01b8",
+          "size": 175688
+        }
+      ],
+      "modifications": "Original model files are unchanged; game-time material overrides, dimension normalization, wheel animation and orientation correction are applied by renderer code."
+    }
+  ]
+}
