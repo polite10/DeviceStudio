@@ -1,6 +1,6 @@
-# ADASLab Drive — bağımsız oyun
+# ADASLab Drive — isteğe bağlı bağımsız prototip
 
-Normal kullanımda **Studio, Python veya Godot editörü açılmaz**. macOS release uygulaması USB seri portuna kendi yerel eklentisiyle doğrudan bağlanır. ADAS modu, ACC, hedef hız, takip süresi ve başlat/duraklat isteğinin kaynağı saatteki ADASLab v2 firmware'idir.
+**Güncel normal kullanım Studio içindeki 3B Sürüş sayfasıdır; `Start.command --game` da Studio açar.** Bu klasör önceki bağımsız Godot prototipinin geliştirici kaynaklarını korur. Aşağıdaki bilgiler yalnız ayrıca derlenen bağımsız paket içindir. macOS release uygulaması USB seri portuna kendi yerel eklentisiyle doğrudan bağlanır. ADAS modu, ACC, hedef hız, takip süresi ve başlat/duraklat isteğinin kaynağı saatteki ADASLab v2 firmware'idir.
 
 ## Kullanım
 
@@ -11,7 +11,7 @@ Normal kullanımda **Studio, Python veya Godot editörü açılmaz**. macOS rele
 
 Oyunun menüsü saatteki ADAS ayarlarını yalnız gösterir. **Yolu sıfırla** yeni trafik sürüşünü hazırlar; sürüşü tekrar saatten başlatın. Pencere odağı kaybolunca, USB kesilince veya uygulama kapanınca tuşlar bırakılır ve saate duraklatma gönderilir. Yeniden bağlantı eski sürüşü otomatik sürdürmez. USB portu gerekirse menüden seçilebilir.
 
-Saatte mevcut **ADASLab v2 / DeviceBoot v2** yeterlidir. Bu değişiklik için firmware yeniden yüklenmez. Studio ayrı bir firmware yükleme ve teşhis aracı olarak kalır.
+Saatte mevcut **ADASLab v2 / DeviceBoot v2** yeterlidir. Bu değişiklik için firmware yeniden yüklenmez. Studio artık kendi 3B sürüş sahnesini de içerir; bu bağımsız paket Studio başlatıcısından açılmaz.
 
 ## Mimari
 

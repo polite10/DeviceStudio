@@ -1,139 +1,51 @@
 # Device Studio
 
-Python + PySide6 / Qt Quick masaüstü uygulaması. [DeviceBoot](https://github.com/polite10/DeviceBoot) yönetimi, firmware yükleme, [Düello](https://github.com/polite10/Duello) kontrolü, ADASLab sürüş deneyleri ve klavyeyle oynanan trafik oyununu tek arayüzde toplar. Kartın C firmware'i ve UART protokolü arayüzden bağımsızdır.
+Python + PySide6 / Qt Quick masaüstü uygulaması. Gerçek 3B sürüş, firmware yükleme, DeviceBoot yönetimi, Düello kontrolü ve komut konsolu aynı Studio penceresindedir. ADAS kararları saatteki C firmware'inde çalışır.
 
-## Kurulum ve açılış
+## Açılış
 
-Python 3.12+ gerekir. Bağımlılıklar `requirements.txt` içinde sabitlenmiştir: `PySide6==6.12.0`, `pyserial==3.5`. Başlatıcılar proje içindeki `.venv` ortamını oluşturur; gereksinim dosyası değiştiğinde veya temel bağımlılıklar eksikse kurulum yapar. Sonraki açılışlar aynı ortamı kullanır.
-
-Windows / PowerShell:
-
-```powershell
-./Start.ps1
-# Karttaki ADASLab'a bağlanıp varsayılan deneyi başlat:
-./Start.ps1 --adas
-# İsteğe bağlı eski QML deney görünümü:
-./Start.ps1 --game-2d
-```
-
-macOS:
+Python 3.12+ gerekir. Başlatıcılar proje içindeki `.venv` ortamını hazırlar; bağımlılıklar `requirements.txt` içinde sabitlenmiştir (`PySide6==6.12.0`, `pyserial==3.5`).
 
 ```sh
+# macOS
 ./Start.command
-./Start.command --adas
-./Start.command --game
-```
-
-Elle kurulum ve çalıştırma:
-
-```sh
-python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
+# Windows / PowerShell
+./Start.ps1
+# Hazır Python ortamıyla
 .venv/bin/python studio.py
 ```
 
-Windows'ta son iki komut için `.venv\Scripts\python.exe` kullanın. Başlatma seçenekleri:
+Studio **3B Sürüş** sayfasını açar ve seçili ST-LINK seri portuna otomatik bağlanır. USB sonradan takıldıysa üstteki yenile düğmesiyle portları taratıp **Bağlan** seçin. `--game` de aynı Studio görünümünü açar. `--game-sim` fiziksel karta erişmeden derlenmiş ARM firmware'ini kullanır. Eski `--adas` / `--game-2d` seçenekleri bu yeni görünüme uyumluluk takma adıdır; eski ekranları açmaz.
 
-| Seçenek | Davranış |
+## Saatten başlat, Studio'da oyna
+
+Kartta **ADASLab v2 (ID 3)** ve DeviceBoot v2 bulunmalıdır. Grafik değişikliği için firmware yeniden yüklenmez.
+
+1. Saati ST-LINK USB bağlantısıyla bağlayın, Studio'yu açın ve **3B Sürüş** görünümünü etkin bırakın.
+2. Saatten **AKTIF / UYARI / KAPALI**, **ACC**, hedef hız **− / +** ve **TAKIP** ayarını seçin. Studio'nun üst göstergeleri bu değerleri salt okunur gösterir.
+3. Saatte **BASLAT** düğmesine dokunun. Oyun Studio'nun içindeki 3B sahnede başlar ve klavye odağı otomatik yola geçer.
+4. **W / ↑** gaz, **S / ↓** fren, **A–D / ← →** şerit değişimidir. Şerit tuşuna her basış bir şerit ister; otomatik tuş tekrarı ek şerit değişimi oluşturmaz. **C** takip/kaput kamerasını değiştirir.
+5. Saatte **DURAKLAT**, bilgisayarda **Boşluk / Esc** sürüşü duraklatır. Saatte tekrar **BASLAT** aynı yolu sürdürür. Çarpışma veya 120 simülasyon saniyesi sonunda sonraki BASLAT yeni sürüş hazırlar.
+
+Hız, takip mesafesi ve TTC sahnenin üzerindedir. Sarı **ÇARPIŞMA UYARISI** FCW'yi, kırmızı **AEB · ACİL FREN** gerçek firmware'in acil fren isteğini gösterir. ACC açıkken pedallara basmazsanız hedef hız ve takip süresini saat yönetir. Mod ve durum kart ekranında da izlenebilir.
+
+| Saatteki mod | Davranış |
 |---|---|
-| Seçenek yok | Arayüzü Trafik oyunu sayfasında açar; bağlantıyı kullanıcı kurar. |
-| `--connect` | Seçili ST-LINK seri portuna bağlanır. |
-| `--adas` | Gerçek karta bağlanır; kartta ADASLab çalışıyorsa deneyi başlatır. Firmware yüklemez. |
-| `--adas-sim` | Derlenen ARM ELF ile laboratuvar deneyini başlatır; fiziksel karta erişmez. |
-| `--game` | Studio açmadan bağımsız release uygulamasını başlatır; ayarlar ve başlatma saatten yönetilir. |
-| `--game-sim` | ARM ELF denetleyicisiyle Godot 3B oyununu açar; fiziksel karta erişmez. |
-| `--game-2d` / `--game-2d-sim` | Mevcut QML trafik görünümünü gerçek kartla / ARM simülasyonuyla açar. |
+| AKTIF | Uyarı ve AEB çalışır; AEB gaz tuşundan önceliklidir. ACC ayrıca açılabilir. |
+| UYARI | Uyarılar gösterilir; otomatik gaz/fren uygulanmaz. |
+| KAPALI | ADAS uyarısı ve otomatik müdahale kapalıdır. |
 
-ARM simülasyonu için ek bağımlılıkları aynı ortama kurun:
+Başka sayfaya/pencereye geçmek veya yolun klavye odağını kaybetmesi sürüşü duraklatır ve basılı tuşları bırakır. Yeniden başlatmak için Studio penceresini etkinleştirip saatte BASLAT kullanın. Normal kullanımda ayrıca bir Godot/debug penceresi veya ayrı oyun uygulaması açılmaz. Eski **Trafik oyunu** ve **ADASLab** sayfaları kaldırılmıştır.
 
-```sh
-.venv/bin/python -m pip install -r requirements-sim.txt
-.venv/bin/python studio.py --game-sim
-```
+## Görüntü ve iletişim
 
-Kardeş `ADASLab/build/ADASLab.elf` bulunmalıdır. SDK'nın yerel `tmp/simulator-libs` klasörü varsa kullanılabilir. Arayüz simülasyon modunu açıkça etiketler; GPU/ekran donanımı emüle edilmez, ilgili sayaçlar sıfırdır. Bu modda fiziksel firmware/bootloader yüklemesi kapalıdır.
+Qt Quick 3D `View3D`, gerçek araç mesh'lerini, PBR malzemelerini, gölgeleri ve kamera perspektifini doğrudan Studio sahnesinde GPU ile çizer (macOS'ta Metal). CC0 Quaternius araçları aynı kaynak modellerin Qt biçimine dönüştürülmüş sürümüdür. Hazır mesh ve dokular depodadır; kullanıcıda Godot veya model dönüştürücü kurulumu gerekmez.
 
-## Bağlantı ve sayfalar
+Python işçisi USB/UART'ın tek sahibidir. Boştayken `J` sorgusu saatin ayarlarını ve BASLAT isteğini okur; sürüşte 20 Hz CRC korumalı ölçümleri gönderir. Trafik/araç fiziği Python'da, FCW/AEB/ACC hesabı saatteki C kodunda çalışır. Yalnız doğrulanmış cevap fizik adımını 50 ms ilerletir; konumlar 3B çizimde yumuşatılır. Saatin hassas hedef hızı sürüş başlarken bilgisayardan tekrar yazılmaz; 216 km/sa sınırı desteklenir.
 
-Kartı **ST-LINK USB** girişinden bilgisayara bağlayın. Aynı kablo SWD programlama/teşhis ve sanal seri port üzerinden USART1 haberleşmesini sağlar. Ek UART dönüştürücü gerekmez. Port numarası sabit değildir; üst çubuk ST-LINK portunu öncelikli seçer. Gerekirse **Yenile**, ardından **Bağlan** kullanın.
+Arka plan sorguları düğmeleri kilitlemez. Kontroller, telemetri ve port listeleri ayrı bildirimlerle güncellenir; 3B sahne ve klavye odağı her örnekte yeniden oluşturulmaz. Pencere kapanırken işçi duraklatma/temizlik işlemini bitirir. Aynı portu PuTTY, CubeIDE, ikinci Studio veya eski bağımsız oyunla açık tutmayın.
 
-Solda beş sayfa vardır:
-
-- **Trafik oyunu:** WASD/oklarla sürüş, üç ADAS modu ve sürüş sonuçları.
-- **ADASLab:** Senaryo ayarları, yol görünümü, hız/mesafe/TTC, kontrol durumları ve ölçüm grafiği.
-- **Firmware:** `.dfw` paket seçimi, yükleme ilerlemesi/iptali, bootloader ve kurtarma araçları.
-- **Düello:** Karakterin yedi kontrol komutu ve cihazdan gelen durum.
-- **Komut konsolu:** Genel uygulama komutları ve JSON durum görüntüsü.
-
-Bağlantıdan sonra çalışan uygulamaya uygun sayfa açılır. Alt çubuktaki **İşlem günlüğü** ayrıntıları gösterir. Bootloader bilgisi ile çalışan uygulamanın kimliği ayrı gösterilir. Flash descriptor'ı kimliği belirtir; tek başına bütün bootloader kodunun sağlık kontrolü değildir.
-
-PuTTY, başka bir Studio veya CubeIDE seri terminali aynı portu açık tutmamalıdır. Tek işçi seri portun sahibidir; deney, oyun veya yükleme sırasında çakışan komutlar kapalıdır. Boştaki durum sorgusu düğmeleri kilitlemez; sorgu sırasında yapılan kullanıcı işlemleri aynı seri işçide sıraya alınır. Telemetri, port listesi ve ayarlar ayrı bildirimlerle güncellendiği için seçimler ve klavye odağı her örnekte yeniden kurulmaz. Aktif işlem varken pencere kapatılırsa iptal/duraklatma istenir ve işçinin temizliği tamamlanınca kapanır. Kesilemeyen bootloader kurulumu tamamlanana kadar beklenir.
-
-## ADASLab Drive — bağımsız oyun
-
-3B oyun artık **Studio'dan bağımsız macOS release uygulamasıdır**. Kullanıcı Uygulamaları klasöründeki **ADASLab Drive.app** doğrudan açılır. Studio, Python, Godot editörü veya TCP köprüsü gerekmez; DEBUG başlığı yoktur.
-
-Saat USB ile bağlanır. ADAS modu, ACC, hedef hız, takip süresi ve **BASLAT / DURAKLAT** saat ekranından yönetilir. Bilgisayarda WASD/oklar sürüş, Boşluk/Esc duraklatma ve C/F kamera değişimidir. Menü saatteki ADAS ayarlarını salt okunur gösterir.
-
-Godot uygulaması yerel C++ seri port eklentisini kullanır. Trafik fiziği Godot'ta, ADAS kararları saatteki mevcut C firmware'inde çalışır. Mevcut ADASLab v2 yeterlidir; grafik/uygulama ayrımı için firmware yeniden yüklenmez.
-
-```sh
-# Geliştirici ortamında release paketi üretip kullanıcı Uygulamaları'na kurar:
-.venv/bin/python tools/build_standalone.py --install
-# Hazır bağımsız paketi açar; Studio/Python ortamını başlatmaz:
-./Start.command --game
-```
-
-Ayrıntılar [bağımsız oyun belgesinde](godot/README.md). Studio firmware yükleme ve teşhis aracı olarak ayrıca kullanılabilir.
-
-## Eski QML trafik görünümü (geliştirici)
-
-Kartta **ADASLab v2 (ID 3)** ve DeviceBoot revizyon 2 bulunmalıdır. Eski ADASLab v1 laboratuvar deneyleri çalışmaya devam eder; oyun için v2 paketi yüklenir. Sensör gerekmez: trafik ve araç fiziği bilgisayarda, FCW/AEB/ACC kararları C firmware'inde çalışır. USB üzerinden ölçüm ve kontrol verisi taşınır; karttan video aktarılmaz.
-
-1. `./Start.command --game` (Windows: `./Start.ps1 --game`) ile açın veya Studio'da **Bağlan**, ardından **Trafik oyunu** seçin. Kartın adı/sürümü ve hazır durumu görünmelidir.
-2. Duraklatılmışken **Aktif destek**, **Yalnız uyarı** veya **ADAS kapalı** modunu seçin. İlk sürüşte **Aktif destek**, ACC kapalı ve varsayılan trafik tohumu `42` uygundur.
-3. **Başlat** düğmesine basın. Yol alanı klavye odağını alır; **W / ↑** gaz, **S / ↓** fren, **A–D / ← →** şerit değişimidir. Sol/sağ tuşuna her basış bir şerit ister; basılı tutmak tekrar tekrar şerit değiştirmez.
-4. **Boşluk** veya **Duraklat** sürüşü durdurur. **Devam et** aynı yolu sürdürür; **Yeniden dene** seçili tohumla yolu sıfırlar. Başka sayfaya/pencereye geçmek veya yolun klavye odağını kaybetmesi de oyunu duraklatır ve basılı tuşları bırakır.
-5. Hız, mesafe, TTC, uyarı ve fren durumunu izleyin. Oyun çarpışmada veya 120 simülasyon saniyesinde biter; sonuçta puan, mesafe, çarpışma ve müdahale sayıları görünür. Son dokuz sonuç oturumda saklanır; panel en yeni üçünü gösterir.
-
-| Mod | Sürücünün ve sistemin görevi |
-|---|---|
-| **Aktif destek** | Sistem uyarır ve tehlikede AEB fren isteği uygular; acil fren gaz tuşundan önceliklidir. ACC ayrıca açılabilir. |
-| **Yalnız uyarı** | Uyarı/TTC görünür; otomatik gaz veya fren uygulanmaz. Fren sürücüye aittir. |
-| **ADAS kapalı** | ADAS uyarıları ve otomatik müdahale kapalıdır; araç tamamen sürücünün gaz/fren komutlarını izler. |
-
-**ACC** yalnız aktif destek modunda kullanılabilir. Pedallara basılmadığında hedef hız ve takip süresine göre hız ayarlar; gaz veya fren basıldığında o adımda sürücü komutu geçerlidir, AEB önceliği korunur. Farklı modları karşılaştırmak için aynı trafik tohumunu seçip **Yeniden dene** kullanın; aynı sürücü girdileriyle karşılaştırma daha anlamlıdır. Trafikte ani fren ve şerit kesme olayları vardır. Bu model bir eğitim oyunudur; her koşulda çarpışmayı önleme garantisi vermez.
-
-**Kart ekranı yardımcı kontrol panelidir.** Studio oyun sayfasındayken kartta `ADASLAB / DRIVE` görünür. Duraklatılmışken **AKTIF / UYARI / KAPALI**, **ACC**, hedef hız **− / +** ve **TAKIP** seçilebilir. **BASLAT / DURAKLAT** isteği USB üzerinden Studio'ya iletilir; sürüş sırasında ayar değişiklikleri kilitlenir, duraklatma kullanılabilir. Karttan başlatma için Studio bağlı, oyun sayfası açık ve pencere etkin olmalıdır. Karttaki hız, `MESAFE`, `TTC`, `IVME/FREN` ve `AEB/WARNING` durumları PC'deki sürüşle birlikte değişir. Direksiyon, gaz ve fren bilgisayar klavyesindedir.
-
-Her onaylanmış ölçüm fiziği 50 ms ilerletir. Cevap kesilirse oyun ilerlemez; 500 ms eski veride firmware ivme isteğini sıfırlar. Oyun denetleyicisi ayrı komutlar kullanır; aşağıdaki hazır laboratuvar senaryoları korunmuştur.
-
-## ADASLab: ilk deney
-
-Kartta DeviceBoot revizyon 2 ve ADASLab (ID 3) yüklü olmalıdır. Fizik Studio'da, FCW/AEB/ACC kararları kartta çalışır. Kartın fren isteği sanal aracı yavaşlatır.
-
-1. **Bağlan** ve **ADASLab** sayfasını açın.
-2. İlk ACC deneyi için **Yavaş araç**, hedef **90 km/sa**, **ACC** ve **AEB** açık seçin. Başlangıçta **Gürültü** ve **Tekrar** kapalı olabilir.
-3. **Deneyi başlat** düğmesine basın. Hızın öndeki araca uyumunu, takip mesafesini ve ivme isteğini izleyin.
-4. **Deneyi duraklat** ile durdurun; işlem tamamlanınca ayarları değiştirebilirsiniz.
-5. AEB için **Ani fren** senaryosunu seçip başlatın. Öndeki araç üçüncü saniyede fren yapar. `WARNING` uyarısını ve gerekirse `AEB` durumuna geçişi izleyin.
-6. Deneyden sonra **CSV kaydet** ile ölçümleri dışa aktarın. En son 12.000 örnek saklanır.
-
-| Senaryo | Deney |
-|---|---|
-| Ani fren | Öndeki aracın frenine takip ve acil fren tepkisi. |
-| Yavaş araç | Daha yavaş araca yaklaşırken ACC'nin hız/mesafe ayarı. |
-| Önümüze giren araç | Üçüncü saniyede yeni hedefin ortaya çıkması. |
-| Sabit takip | Aynı hızdaki iki araçla bağlantı ve sabit takip kontrolü. |
-| Veri kesintisi | Ölçüm akışı kısa süre kesildiğinde veri eskime koruması. |
-
-**ACC**, hedef hızı ve takip mesafesini korumaya çalışır. **AEB**, acil durumda daha güçlü fren isteği üretir. ACC de normal yavaşlama yapabildiğinden AEB'yi değerlendirirken sistemin `AEB` durumunu ve fren isteğini birlikte izleyin. **Gürültü** ölçümlere sapma ekler; **Tekrar** açıkken deney 25 simülasyon saniyesi sonunda yeniden başlar.
-
-Kart ekranında hız, öndeki araç, `MESAFE`, `TTC`, ivme/fren ve sistem modu görünür. `TTC --` yaklaşma olmadığını belirtir. `WAITING` ölçüm bekleme, `ACC` takip kontrolü, `WARNING` çarpışma uyarısı, `AEB` acil fren, `PAUSED` duraklatma, `NO_DATA` veri eskimesidir. `GPU` ve `KARE` tamamlanmış iş/sunum sayaçlarıdır; doğrudan FPS değildir.
-
-Ölçüm hedefi 50 ms'dir. Fizik zamanı her onaylı cevapta 50 ms ilerler; geç cevaplar deneyi yavaşlatır, komut biriktirilmez. Seri cevap gelmezse fizik ilerletilmez. Kart 500 ms yeni ölçüm almazsa `NO_DATA` durumuna geçip ivme isteğini sıfırlar. Duraklatma sonunda `PAUSE` gönderilir. QML görünümü sınırlı kuyruğun en güncel örneğini tüketir; seri işçi arayüzden bağımsızdır.
-
-Ölçümler CRC16-CCITT (`0x1021`, başlangıç `0xFFFF`, ondalık son alan), sıra numarası ve simülasyon zamanıyla doğrulanır. RTT, 50 ms aşımı, kontrol süresi, GPU tamamlanması, kare sayısı ve en uzun kare izlenebilir. Protokol/IRQ/GPU tasarımı [ADASLab README](../ADASLab/README.md) içindedir. Bunlar sanal araç deneyleridir; deney kalibrasyonları gerçek araç kullanımı için doğrulanmamıştır.
+Firmware, Düello ve komut konsolu sayfaları korunmuştur. İşlem ayrıntıları alt çubuktaki **İşlem günlüğü** içindedir. Eski Godot bağımsız prototipinin geliştirici kaynakları [godot/README.md](godot/README.md) altında bulunur; Studio başlatıcısı bu prototipi çalıştırmaz.
 
 ## Firmware yükleme ve bootloader
 
@@ -191,60 +103,22 @@ const device_app_info_t device_app_info = { DEVICE_APP_MAGIC, 4U, 1U, DEVICE_PRO
 
 Kimlik ve sürüm varsayılan olarak binary descriptor'ından okunur; uyuşmayan açık değerler reddedilir. Ad 1–48 karakter olmalı, ASCII harfle başlamalı ve yalnız harf/rakam, `_`, `.`, `-` içermelidir. Mevcut uygulama adları/kimlikleri tekrar kullanılmamalıdır. Runtime adı paket adıyla eşleşmelidir. Özel arayüzü olmayan uygulama Komut konsolu sayfasında kontrol edilebilir.
 
-## Testler, raporlar ve geri dönüş
-
-Yerel testler fiziksel karta bağlanmaz:
+## Testler
 
 ```sh
 .venv/bin/python -m unittest discover -s tests -v
-# QML ekranları, düğme bağlantıları ve 1000×720 yerleşim kontrolü:
-QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software .venv/bin/python tools/verify_qt_ui.py
-# Yenileme sırasında düğme, seçim ve klavye odağı regresyonları:
-QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software .venv/bin/python tools/verify_qt_interaction.py
-# Oyun fiziği + gerçek derlenmiş ARM kontrolü; fiziksel karta erişmez:
-.venv/bin/python tools/verify_game_arm.py
-# Gerçek QML oyun kontrolleri + ARM firmware; fiziksel karta erişmez:
-QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software .venv/bin/python tools/verify_game_ui.py
-# Derlenen ARM ELF ile laboratuvar arayüz testi (fiziksel karta erişmez):
-QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software .venv/bin/python tools/verify_qt_ui.py --backend arm
+# Genel sayfalar, yükleme onayı ve konsol; sanal cihaz, Flash yazılmaz:
+.venv/bin/python tools/verify_qt_ui.py
+# Yenileme sırasında gerçek fare/klavye, taslak metin ve odak:
+.venv/bin/python tools/verify_qt_interaction.py
+# Gerçek 3B pencere + derlenmiş ARM C kodu ve saat dokunma işleyicisi:
+.venv/bin/python tools/verify_game_ui.py --capture-dir build/embedded-3d-arm
+# Aynı akış, önceden yüklü fiziksel kartta (portu kendi cihazınızla değiştirin):
+.venv/bin/python tools/verify_game_ui.py --backend hardware --port /dev/cu.usbmodem11403 --capture-dir build/embedded-3d-hardware
 ```
 
-İlk Qt geçişinde 45 birim/denetleyici testi, uyarısız QML lint kontrolü, ARM simülasyonu ve mevcut ADASLab kartıyla arayüz akışı doğrulandı. macOS'ta masaüstü çizim motoru Metal olarak çalıştı. Özet `qt-verification.json`, yerel ekran görüntüleri ve ayrıntılar `build/qt-preview-*/` içindedir. Yeni arayüz testi firmware veya bootloader yüklemedi. Windows başlatıcısı güncellendi; bu bilgisayarda Windows üzerinde çalıştırılmadı.
+3B arayüz testleri Qt'nin yerel RHI/GPU çizimini gerektirir; `QT_QUICK_BACKEND=software` View3D çizmez. ARM testi LVGL'nin çağırdığı gerçek `adas_game_touch` fonksiyonunu çalıştırır. Fiziksel kart testindeki ayar/başlat istekleri mevcut G/H protokolünün eşdeğeridir; fiziksel parmak dokunuşu otomatikleştirilmez. Bu kontroller Flash'a yazmaz. Donanım testi öncesi açık Studio bağlantısını kapatın.
 
-Oyun testleri üç modun ayrılmasını, aynı tohumla trafik tekrarını, gaz/fren önceliğini, odak kaybında duraklamayı, bağımsız tuş basışlarını ve kart paneli protokolünü sınar. `tools/verify_game_arm.py` çıktısı `build/game-arm-policy-report.json`, `tools/verify_game_ui.py` çıktısı `build/game-ui-qa/` altındadır. ARM testleri gerçek derlenmiş C kodunu çalıştırır; fiziksel dokunmatik paneli veya GPU donanımını emüle etmez.
+Güncel sonuçlar [embedded-3d-verification.json](embedded-3d-verification.json), ekran görüntüleri `build/embedded-3d-*/` altındadır. Önceki `game-verification.json`, `godot-verification.json`, `standalone-verification.json` önceki mimarilerin kayıtlarıdır. Windows başlatıcısı aynı giriş noktasını kullanır; bu geliştirme macOS Metal üzerinde doğrulanmıştır.
 
-Bu oyun sürümünde 72 birim testi, 16 yenileme etkileşimi, 22 ARM trafik kontrolü ve 58 QML oyun kontrolü geçti. QML oyun akışı ARM ile hem yazılım çiziminde hem macOS Metal üzerinde, gerçek kartla yazılım çiziminde doğrulandı. Gerçek karttaki 14 kontrol ACC/AEB, üç mod, paket/zaman doğrulaması ve GPU/LCD sayaçlarını kapsadı; eski laboratuvar/firmware/konsol arayüzündeki 41 kontrol de v2 kartla geçti. Özet [game-verification.json](game-verification.json) içindedir.
-
-4 MiB yükleme öncesi yedek `Backup/before-game-v2-20261028-223216/flash.bin` konumundadır. SWD okuması, yüklenen v2 uygulamanın test edilen binary ile birebir eşleştiğini ve bootloader kodu ile son 16 KiB saat günlüğünün değişmediğini doğruladı. Fiziksel parmak dokunuşu otomatikleştirilmedi; LVGL düğmelerinin çağırdığı işlevler derlenen ARM testinde sınandı.
-
-Önceden yüklenmiş v2 kartta oyun testlerini çalıştırmak için (önce Studio bağlantısını kapatın):
-
-```sh
-.venv/bin/python tools/verify_game_hardware.py --port /dev/cu.usbmodem11103
-QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software .venv/bin/python tools/verify_game_ui.py --backend hardware --port /dev/cu.usbmodem11103 --capture-dir build/game-ui-hardware
-```
-
-Bu iki test Flash'a yazmaz. `--game` / `--game-sim` sürüşü kendiliğinden başlatmaz; pencereyi etkinleştirip **Sürüşü başlat** kullanın.
-
-Mevcut ADASLab yüklenmiş fiziksel kartla laboratuvar QML testi için (portu kendi cihazınızla değiştirin, önce açık Studio'yu kapatın):
-
-```sh
-.venv/bin/python tools/verify_qt_ui.py --backend hardware --port /dev/cu.usbmodem11103
-```
-
-Bu test ölçüm ve `PAUSE` komutları gönderir, firmware yükleme onayını açıp **vazgeçer**. Ekran görüntüleri, bağlanma/başlatma/duraklatma ve CSV/komut akışları birlikte kontrol edilir. Windows'ta `QT_QPA_PLATFORM` ortam değişkenini PowerShell sözdizimiyle ayarlayın veya normal pencereyle çalıştırın.
-
-Donanım testleri ayrıca ve açıkça çalıştırılır. Aynı seri port başka programda açık olmamalıdır:
-
-```sh
-# Önceden yüklenmiş ADASLab üzerinde ölçüm/koruma testleri; firmware yüklemez:
-.venv/bin/python verify_adas_hardware.py --port /dev/cu.usbmodem11103
-# Gerçek firmware'i değiştirir, sonunda Smartwatch'ı geri yükler:
-.venv/bin/python verify_hardware.py --port COM5
-# İlk bootloader kurulumu da yapılacaksa:
-.venv/bin/python verify_hardware.py --port COM5 --install
-```
-
-`verify_hardware.py` için kart önce bootloader modunda olmalıdır. `hardware-report.json` önceki iki-uygulama UART yükleme/kurtarma testlerine; `adas-hardware-report.json` önceki ADASLab kart testine aittir. ADASLab raporundaki 960 örnek, yaklaşık 32 ms ortalama/43.47 ms en yüksek RTT, 20 µs kontrol ve 35 ms en uzun kare sonuçları o donanım testinin ölçümleridir. Bu kayıtlar yeni Qt arayüzünün ayrıca sınandığı veya uzun süreli/güç kesintili doğrulama yapıldığı anlamına gelmez.
-
-Normal uygulama dönüşü başka `.dfw` paketini yüklemektir. İlk bootloader kurulumu öncesine tam dönüş, `Backup/<timestamp>/before-deviceboot-flash.bin` dosyasını SWD ile `0x08000000` adresine doğrulayarak geri yüklemektir. Bu tüm Flash'ı, bootloader'ı ve yedekteki saat kayıtlarını geri getirir. Daha güncel saat kayıtlarını korumak için son 16 KiB'ı ayrıca yedekleyin. Otomatik eski sürüm rollback'i yoktur. Yedekler, `.venv`, yerel bağımlılıklar ve kişisel ayarlar Git'e dahil edilmez.
+Normal uygulama dönüşü başka `.dfw` paketini yüklemektir. İlk bootloader kurulumu öncesine tam dönüş, `Backup/<timestamp>/before-deviceboot-flash.bin` dosyasını SWD ile `0x08000000` adresine doğrulayarak geri yüklemektir. Bu tüm Flash'ı ve yedekteki saat kayıtlarını geri getirir. Yedekler, `.venv`, yerel bağımlılıklar ve kişisel ayarlar Git'e dahil edilmez.
