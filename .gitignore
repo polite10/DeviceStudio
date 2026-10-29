@@ -18,3 +18,9 @@ __pycache__/
 
 /.tools/
 /godot/**/.godot/
+
+/dist/
+/native/serial/.sconsign*
+/native/serial/*.os
+
+/godot/adas_drive/export_presets.cfg

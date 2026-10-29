@@ -3,3 +3,5 @@
 
 # Preserve original vendor license bytes and line endings.
 godot/adas_drive/assets/**/LICENSE.txt -text whitespace=-blank-at-eol,-blank-at-eof
+
+godot/adas_drive/native/LICENSE.*.txt -text whitespace=-blank-at-eol,-blank-at-eof

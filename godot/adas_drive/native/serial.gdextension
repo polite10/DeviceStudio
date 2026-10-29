@@ -1,0 +1,9 @@
+[configuration]
+entry_symbol = "adas_serial_library_init"
+compatibility_minimum = "4.5"
+reloadable = false
+
+[libraries]
+macos.arm64 = "res://native/libadas_serial.macos.template_release.arm64.dylib"
+linux.x86_64 = "res://native/libadas_serial.linux.template_release.x86_64.so"
+windows.x86_64 = "res://native/libadas_serial.windows.template_release.x86_64.dll"
