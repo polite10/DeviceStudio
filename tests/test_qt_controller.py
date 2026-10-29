@@ -173,7 +173,7 @@ class QtControllerTests(unittest.TestCase):
         self.controller.stateChanged.connect(lambda: changes.append(threading.get_ident()))
         state = self.connect()
         self.assertEqual(state["app"], "ADASLab")
-        self.assertEqual(state["page"], "adas")
+        self.assertEqual(state["page"], "game")
         self.assertNotEqual(self.fake.calls[0][1], ui_thread)
         self.assertTrue(changes)
         self.assertTrue(all(thread == ui_thread for thread in changes))

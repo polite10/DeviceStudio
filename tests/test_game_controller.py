@@ -78,6 +78,15 @@ class GameControllerTests(unittest.TestCase):
         self.device.running=False;self.device.revision+=1
         self.wait(lambda:not self.controller.state['busy'])
         self.assertEqual(self.controller.gameState['status'],'paused')
+    def test_watch_maximum_target_is_preserved_without_host_reconfiguration(self):
+        self.device.target=5999
+        self.device.running=True
+        self.controller._heartbeat()
+        self.wait(lambda:self.controller.gameState['elapsed']>=.1)
+        self.assertEqual(self.controller.gameState['targetKmh'],216)
+        self.assertEqual(self.device.target,5999)
+        self.assertFalse(any(c.startswith('G:') for c in self.device.calls))
+
     def test_card_start_does_not_resume_when_window_inactive(self):
         self.controller.setWindowActive(False)
         self.device.running=True;self.device.revision+=1

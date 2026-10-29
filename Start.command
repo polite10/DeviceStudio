@@ -1,12 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 project_root="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-# The packaged game is independent of the Studio Python environment.
-if [ "${1:-}" = "--game" ]; then
-    game_app="$HOME/Applications/ADASLab Drive.app"
-    if [ ! -d "$game_app" ]; then game_app="$project_root/dist/ADASLab Drive.app"; fi
-    exec /usr/bin/open "$game_app"
-fi
 venv_python="$project_root/.venv/bin/python"
 requirements="$project_root/requirements.txt"
 marker="$project_root/.venv/studio-requirements.sha256"

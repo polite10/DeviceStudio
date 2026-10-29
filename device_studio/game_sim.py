@@ -27,7 +27,7 @@ class GameConfig:
     duration: int = 120
 
     def __post_init__(self):
-        if self.mode not in MODES or not 0 <= self.target_kmh <= 200 or not 800 <= self.headway_ms <= 4000:
+        if self.mode not in MODES or not 0 <= self.target_kmh <= 216 or not 800 <= self.headway_ms <= 4000:
             raise ValueError('Geçersiz oyun ayarı')
         if not 1 <= self.seed <= 999999 or not 5 <= self.duration <= 600:
             raise ValueError('Geçersiz yol veya süre')
@@ -221,9 +221,10 @@ class TrafficWorld:
 
 
 class GameRunner:
-    def __init__(self, device, config, inputs, stop, emit, world=None):
+    def __init__(self, device, config, inputs, stop, emit, world=None, *, configure=True):
         self.device, self.config, self.inputs, self.stop, self.emit = device, config, inputs, stop, emit
         self.world = world or TrafficWorld(config)
+        self.configure = configure
         self.rows = deque(maxlen=12000)
         self.last_response = None
         self.overruns = 0
@@ -234,9 +235,13 @@ class GameRunner:
             raise ProtocolError('Trafik oyunu için ADASLab v2 firmware’i gerekli.')
         try:
             self.device.runtime('RESET')
-            configured = self.device.runtime(self.config.command())
-            if configured.get('state', {}).get('error'):
-                raise ProtocolError('Kart oyun ayarlarını kabul etmedi.')
+            # A watch-owned session has already read its exact configuration
+            # via J. RESET preserves that panel; do not quantize/rewrite its
+            # centimetres/second target through the rounded HUD km/h value.
+            if self.configure:
+                configured = self.device.runtime(self.config.command())
+                if configured.get('state', {}).get('error'):
+                    raise ProtocolError('Kart oyun ayarlarını kabul etmedi.')
             self.device.runtime('H:1')
             while not self.stop.is_set() and not self.world.finished:
                 started = time.monotonic()

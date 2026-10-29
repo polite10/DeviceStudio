@@ -119,7 +119,7 @@ class StudioController(QObject):
         self._drain_timer.timeout.connect(self._drain)
         self._drain_timer.start()
         self._heartbeat_timer = QTimer(self)
-        self._heartbeat_timer.setInterval(1200)
+        self._heartbeat_timer.setInterval(350)
         self._heartbeat_timer.timeout.connect(self._heartbeat)
         if start_timers:
             self._heartbeat_timer.start()
@@ -298,7 +298,7 @@ class StudioController(QObject):
                            connectionText='Bağlı', appState=json.dumps(response.get('state', {}), ensure_ascii=False, indent=2))
         self._game.update(connected=app == 'ADASLab', ready=app == 'ADASLab' and response.get('version', 0) >= 2)
         self._game['hint'] = ('W / ↑ gaz · S / ↓ fren · A–D / ← → şerit · Boşluk duraklat' if self._game['ready']
-                              else 'Trafik oyunu için ADASLab v2 firmware’ini yükleyin.')
+                              else '3B sürüş için ADASLab v2 firmware’ini yükleyin.')
         if response.get('backend') == 'ARM_SIM':
             self._state['backendLabel'] = 'ARM simülasyonu · fiziksel kart kullanılmıyor'
         if app == 'DeviceBoot':
@@ -328,7 +328,7 @@ class StudioController(QObject):
             if s.get('error'):
                 self._state.update(statusMessage='Düello: ' + s['error'], statusTone='warning')
         if route:
-            self._state['page'] = {'ADASLab': 'adas', 'Duello': 'duello', 'Smartwatch': 'firmware',
+            self._state['page'] = {'ADASLab': 'game', 'Duello': 'duello', 'Smartwatch': 'firmware',
                                    'DeviceBoot': 'firmware'}.get(app, 'console')
             if app == 'ADASLab' and response.get('version', 0) >= 2:
                 self._state['page'] = 'game'
@@ -396,7 +396,7 @@ class StudioController(QObject):
                 pass
         self._device = None
         self._game_inputs.release()
-        self._game.update(connected=False, ready=False, running=False, status='disconnected', warning=False, aeb=False)
+        self._game.update(connected=False, ready=False, devicePanel=False, running=False, status='disconnected', warning=False, aeb=False)
         self._state.update(connected=False, app='', appVersion='', connectionText='Bağlantı yok',
                            appState='{}', telemetry=empty_telemetry(),
                            duello=dict(gun='—', action='—', ammo=0, targetHp=0, walking=False))
@@ -459,6 +459,8 @@ class StudioController(QObject):
 
         def connected(response):
             self._apply_response(response, route=True)
+            if response.get('app') == 'ADASLab':
+                self._panel_response(response)
             self._state.update(statusMessage='Cihaz bağlantısı doğrulandı.', statusTone='success')
             self._log('Bağlandı: ' + response.get('app', 'cihaz'))
             if self._auto_adas and response.get('app') == 'ADASLab':
@@ -752,7 +754,7 @@ class StudioController(QObject):
             elif key == 'accEnabled' and isinstance(value, bool):
                 pass
             elif key in ('targetKmh', 'headwayMs', 'seed') and type(value) in (int, float) and int(value) == value:
-                low, high = {'targetKmh': (0, 200), 'headwayMs': (800, 4000), 'seed': (1, 999999)}[key]
+                low, high = {'targetKmh': (0, 216), 'headwayMs': (800, 4000), 'seed': (1, 999999)}[key]
                 if not low <= value <= high:
                     raise ValueError('Oyun ayarı izin verilen sınırların dışında.')
                 value = int(value)
@@ -786,7 +788,7 @@ class StudioController(QObject):
         if self._game_world and (self._game_world.finished or self._game_world.config != config):
             self._game_world = None
         self._game_inputs.release()
-        self._game_runner = GameRunner(self._device, config, self._game_inputs, self._cancel, self._emit_snapshot, self._game_world)
+        self._game_runner = GameRunner(self._device, config, self._game_inputs, self._cancel, self._emit_snapshot, self._game_world, configure=not self._game['devicePanel'])
         self._game_world = self._game_runner.world
         self._game.update(self._game_world.snapshot({}), running=True, status='running')
         self._state.update(page='game', statusMessage='')

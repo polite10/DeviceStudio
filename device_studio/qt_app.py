@@ -8,6 +8,7 @@ from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWidgets import QApplication
 
 from .qt_controller import StudioController
+from .windowing import activate_window
 
 QML_MAIN = Path(__file__).resolve().parent / 'qml/Main.qml'
 
@@ -26,10 +27,12 @@ def create_app(*, auto_connect=False, auto_adas=False, arm_sim=False, auto_game3
     if not engine.rootObjects():
         bridge.shutdown()
         raise RuntimeError('Studio QML arayüzü yüklenemedi; konsoldaki hataları kontrol edin.')
+    window = engine.rootObjects()[0]
+    QTimer.singleShot(0, lambda: activate_window(window))
     bridge.shutdownReady.connect(app.quit)
     app.aboutToQuit.connect(bridge.shutdown)
     if auto_game3d:
-        QTimer.singleShot(200, bridge.openGame3D)
+        QTimer.singleShot(0, lambda: bridge.navigate('game'))
     if auto_connect:
         QTimer.singleShot(350, bridge.connectDevice)
     return app, engine, bridge
