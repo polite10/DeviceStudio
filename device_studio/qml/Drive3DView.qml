@@ -170,9 +170,9 @@ FocusScope {
         const yawTarget = -Math.atan2(k.lateral, Math.max(k.speed, 6)) * 57.2958
         k.yaw += (drive.clamp(yawTarget, -11, 11) - k.yaw) * Math.min(1, dt * 10)
         // Suspension: nose dives under braking, squats on throttle, leans out of lane changes.
-        let state = drive.spring(k.pitch, k.pitchRate, drive.clamp(-k.accel * 0.24, -1.2, 2.3), 85, 8.5, dt)
+        let state = drive.spring(k.pitch, k.pitchRate, drive.clamp(-k.accel * 0.24, -1.2, 2.3), 85, 13, dt)
         k.pitch = state[0]; k.pitchRate = state[1]
-        state = drive.spring(k.roll, k.rollRate, drive.clamp(k.latAccel * 0.09, -2.6, 2.6), 70, 7.5, dt)
+        state = drive.spring(k.roll, k.rollRate, drive.clamp(k.latAccel * 0.09, -2.6, 2.6), 70, 12, dt)
         k.roll = state[0]; k.rollRate = state[1]
 
         const signal = live && k.clock < k.signalUntil ? k.signalSide : 0
@@ -259,14 +259,15 @@ FocusScope {
         const fast = drive.clamp(k.speed / 55, 0, 1)
         const t = k.clock
         k.shake += ((drive.emergency && drive.playing ? 1 : 0) - k.shake) * Math.min(1, dt * (drive.emergency ? 10 : 2.5))
-        // Road vibration only while driving, so a paused scene stops redrawing.
-        const rumble = drive.playing ? 0.006 + 0.02 * fast * fast + 0.05 * k.shake : 0
-        const sx = (Math.sin(t * 37.1) + Math.sin(t * 23.7 + 1.3) * 0.6) * rumble
-        const sy = (Math.sin(t * 41.3 + 0.7) + Math.sin(t * 19.1) * 0.5) * rumble
+        // No continuous road vibration: high-frequency camera noise reads as a
+        // shaking screen. Only emergency braking adds a short, low nudge.
+        const nudge = drive.playing ? 0.025 * k.shake : 0
+        const sx = Math.sin(t * 7.3) * nudge
+        const sy = Math.sin(t * 9.1 + 0.7) * nudge
         if (drive.hoodCamera) {
             const yaw = k.yaw * Math.PI / 180
-            driveCamera.position = Qt.vector3d(k.x - Math.sin(yaw) * 0.55 + sx * 0.4, 1.22 + sy * 0.5 - k.pitch * 0.012, -Math.cos(yaw) * 0.55)
-            driveCamera.eulerRotation = Qt.vector3d(-5.5 - k.pitch * 0.8, k.yaw, -k.roll * 0.7)
+            driveCamera.position = Qt.vector3d(k.x - Math.sin(yaw) * 0.8 + sx * 0.4, 1.3 + sy * 0.5 - k.pitch * 0.006, -Math.cos(yaw) * 0.8)
+            driveCamera.eulerRotation = Qt.vector3d(-3 - k.pitch * 0.35, k.yaw, -k.roll * 0.3)
             driveCamera.fieldOfView = 60 + fast * 6
             return
         }
@@ -297,8 +298,8 @@ FocusScope {
         driveCamera.position = Qt.vector3d(px, py, pz)
         driveCamera.eulerRotation = Qt.vector3d(Math.atan2(lookY - py, Math.hypot(lookX - px, lookZ - pz)) * 57.2958,
                                            Math.atan2(-(lookX - px), -(lookZ - pz)) * 57.2958,
-                                           drive.clamp(-k.lateral * 0.12, -1.2, 1.2))
-        driveCamera.fieldOfView = 54 + fast * 8 + k.shake * 2
+                                           drive.clamp(-k.lateral * 0.05, -0.5, 0.5))
+        driveCamera.fieldOfView = 54 + fast * 8
     }
     function updateOverlays() {
         const k = drive.kin
