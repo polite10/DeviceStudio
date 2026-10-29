@@ -1,62 +1,124 @@
 # Device Studio
 
-Windows masaüstü uygulaması: [DeviceBoot](https://github.com/polite10/DeviceBoot) yönetimi, firmware yükleme ve [Düello](https://github.com/polite10/Duello) kontrolü. [Smartwatch](https://github.com/polite10/smart_watch) yüklenince cihaz bağımsız çalışır; Düello yüklenince karakter kontrol paneli açılır.
+Python + PySide6 / Qt Quick masaüstü uygulaması. Gerçek 3B sürüş, firmware yükleme, DeviceBoot yönetimi, Düello kontrolü ve komut konsolu aynı Studio penceresindedir. ADAS kararları saatteki C firmware'inde çalışır.
 
-## Çalıştırma
+## Açılış
 
-Python 3.12+ ve Tk gerekir. Seri bağlantı bağımlılığı `pyserial==3.5`.
+Python 3.12+ gerekir. Başlatıcılar proje içindeki `.venv` ortamını hazırlar; bağımlılıklar `requirements.txt` içinde sabitlenmiştir (`PySide6==6.12.0`, `pyserial==3.5`).
 
-```powershell
+```sh
+# macOS
+./Start.command
+# Windows / PowerShell
 ./Start.ps1
-# Alternatif:
-python -m pip install -r requirements.txt
-python studio.py
+# Hazır Python ortamıyla
+.venv/bin/python studio.py
 ```
 
-`Start.ps1`, varsa bilgisayardaki Codex paketli Python'u kullanır ve pyserial'ı proje içindeki, Git'e dahil edilmeyen `.deps/` klasörüne kurar. Aksi halde PATH'teki Python'u kullanır. Tk içermeyen Python dağıtımlarında Tk içeren standart Windows Python kurun.
+Studio **3B Sürüş** sayfasını açar ve seçili ST-LINK seri portuna otomatik bağlanır. USB sonradan takıldıysa üstteki yenile düğmesiyle portları taratıp **Bağlan** seçin. `--game` de aynı Studio görünümünü açar. `--game-sim` fiziksel karta erişmeden derlenmiş ARM firmware'ini kullanır. Eski `--adas` / `--game-2d` seçenekleri bu yeni görünüme uyumluluk takma adıdır; eski ekranları açmaz.
 
-## Tek kabloyla kullanım
+## Saatten başlat, Studio'da oyna
 
-Kartın ST-LINK Micro USB girişini bilgisayara bağlayın. Programlama/teşhis SWD; uygulama kontrolü ST-LINK sanal COM portu üzerinden USART1 kullanır. Ek UART dönüştürücü gerekmez. COM numarası sabit değildir; arayüz portları listeler.
+Kartta **ADASLab v2 (ID 3)** ve DeviceBoot v2 bulunmalıdır. Grafik değişikliği için firmware yeniden yüklenmez.
 
-1. İlk açılış **Firmware yükleme** sekmesidir. Portu seçip **Bağlan** düğmesine basın.
-2. **ST-LINK ile kontrol et**, Flash'taki DeviceBoot kimliğini okur. Cevap alınamaması “yüklü değil” kabul edilmez; hata ayrıca gösterilir.
-3. İlk kurulum gerekiyorsa **DeviceBoot kur** ile `DeviceBoot/Firmware/DeviceBoot.bin` seçin. Önce tam 4 MiB yedek alınır. Yedeğin yolu logda görünür. Bootloader kurulduktan sonra uyumlu uygulama paketi yüklenmelidir.
-4. **Firmware seç** ile Smartwatch veya Düello `.dfw` paketi seçin; **Yükle ve başlat** ile yükleyin. Cihazdaki mevcut uygulamanın yerini alır; saat kayıt günlüğü korunur.
-5. Önce “Firmware doğrulandı”, uygulamanın JSON cevabı geldikten sonra “Uygulama hazır” gösterilir. Düello kontrol sekmesi otomatik açılır.
+1. Saati ST-LINK USB bağlantısıyla bağlayın, Studio'yu açın ve **3B Sürüş** görünümünü etkin bırakın.
+2. Saatten **AKTIF / UYARI / KAPALI**, **ACC**, hedef hız **− / +** ve **TAKIP** ayarını seçin. Studio'nun üst göstergeleri bu değerleri salt okunur gösterir.
+3. Saatte **BASLAT** düğmesine dokunun. Oyun Studio'nun içindeki 3B sahnede başlar ve klavye odağı otomatik yola geçer.
+4. **W / ↑** gaz, **S / ↓** fren, **A–D / ← →** şerit değişimidir. Şerit tuşuna her basış bir şerit ister; otomatik tuş tekrarı ek şerit değişimi oluşturmaz. **C** takip/kaput kamerasını değiştirir.
+5. Saatte **DURAKLAT**, bilgisayarda **Boşluk / Esc** sürüşü duraklatır. Saatte tekrar **BASLAT** aynı yolu sürdürür. Çarpışma veya 120 simülasyon saniyesi sonunda sonraki BASLAT yeni sürüş hazırlar.
 
-Bootloader durumu ile çalışan uygulama ayrı gösterilir. Smartwatch veya Düello, bootloader'ın Flash kimliğini bildirir. Bootloader modunda DeviceBoot sürüm/protokol/bellek sınırlarını doğrudan döndürür. Flash descriptor'ı, kurulu yazılımın kimliğini gösterir; tek başına tüm bootloader kodunun sağlık kontrolü değildir.
+Hız, takip mesafesi ve TTC sahnenin üzerindedir. Sarı **ÇARPIŞMA UYARISI** FCW'yi, kırmızı **AEB · ACİL FREN** gerçek firmware'in acil fren isteğini gösterir. ACC açıkken pedallara basmazsanız hedef hız ve takip süresini saat yönetir. Mod ve durum kart ekranında da izlenebilir.
 
-Bootloader güncellemesi SWD ile yapılır. Sonraki **uygulama** yüklemeleri UART üzerinden custom bootloader'a gönderilir. Bootloader 921600 8N1, runtime 115200 8N1; hız geçişini uygulama yönetir. Device Studio bütün seri işlemleri tek worker üzerinden yapar; yükleme sırasında eşzamanlı kontrol komutu göndermez. Kurtarma için USER basılıyken kartı resetleyin. İptal edilen/yarım yükleme baştan tekrar yapılır.
+| Saatteki mod | Davranış |
+|---|---|
+| AKTIF | Uyarı ve AEB çalışır; AEB gaz tuşundan önceliklidir. ACC ayrıca açılabilir. |
+| UYARI | Uyarılar gösterilir; otomatik gaz/fren uygulanmaz. |
+| KAPALI | ADAS uyarısı ve otomatik müdahale kapalıdır. |
 
-PuTTY/CubeIDE seri terminali gibi başka bir program aynı COM portunu açık tutmamalıdır. Uygulama takılmışsa USER ile reset veya SWD teşhisi kullanılır.
+Başka sayfaya/pencereye geçmek veya yolun klavye odağını kaybetmesi sürüşü duraklatır ve basılı tuşları bırakır. Yeniden başlatmak için Studio penceresini etkinleştirip saatte BASLAT kullanın. Normal kullanımda ayrıca bir Godot/debug penceresi veya ayrı oyun uygulaması açılmaz. Eski **Trafik oyunu** ve **ADASLab** sayfaları kaldırılmıştır.
 
-## Firmware paketleri
+## Görüntü ve iletişim
 
-`Firmware/` altında iki doğrulanmış örnek paket vardır. Paket, ZIP içinde `manifest.json` ve `firmware.bin` içerir. Kart, adres, uygulama kimliği, protokol, boyut, vektörler, SHA-256 ve CRC32 yüklemeden önce kontrol edilir. Bootloader Flash içeriğini ayrıca CRC32 ile doğrular. Dijital imza uygulanmaz.
+Qt Quick 3D `View3D`, gerçek araç mesh'lerini, PBR malzemelerini, gölgeleri ve kamera perspektifini doğrudan Studio sahnesinde GPU ile çizer (macOS'ta Metal). CC0 Quaternius araçları aynı kaynak modellerin Qt biçimine dönüştürülmüş sürümüdür. Hazır mesh ve dokular depodadır; kullanıcıda Godot veya model dönüştürücü kurulumu gerekmez.
 
-```powershell
-python package_firmware.py ../Duello/Firmware/Duello.bin Firmware/Duello.dfw --name Duello
-python package_firmware.py ../Smartwatch/Firmware/Smartwatch.bin Firmware/Smartwatch.dfw --name Smartwatch
-python flash_cli.py Firmware/Duello.dfw --port COM5
+Python işçisi USB/UART'ın tek sahibidir. Boştayken `J` sorgusu saatin ayarlarını ve BASLAT isteğini okur; sürüşte 20 Hz CRC korumalı ölçümleri gönderir. Trafik/araç fiziği Python'da, FCW/AEB/ACC hesabı saatteki C kodunda çalışır. Yalnız doğrulanmış cevap fizik adımını 50 ms ilerletir; konumlar 3B çizimde yumuşatılır. Saatin hassas hedef hızı sürüş başlarken bilgisayardan tekrar yazılmaz; 216 km/sa sınırı desteklenir.
+
+Arka plan sorguları düğmeleri kilitlemez. Kontroller, telemetri ve port listeleri ayrı bildirimlerle güncellenir; 3B sahne ve klavye odağı her örnekte yeniden oluşturulmaz. Pencere kapanırken işçi duraklatma/temizlik işlemini bitirir. Aynı portu PuTTY, CubeIDE, ikinci Studio veya eski bağımsız oyunla açık tutmayın.
+
+Firmware, Düello ve komut konsolu sayfaları korunmuştur. İşlem ayrıntıları alt çubuktaki **İşlem günlüğü** içindedir. Eski Godot bağımsız prototipinin geliştirici kaynakları [godot/README.md](godot/README.md) altında bulunur; Studio başlatıcısı bu prototipi çalıştırmaz.
+
+## Firmware yükleme ve bootloader
+
+**Firmware** sayfasındaki akış:
+
+1. **Paket seç** ile `.dfw` dosyasını seçin. Kart, adres, kimlik, protokol, boyut, vektörler, SHA-256 ve CRC32 yüklemeden önce kontrol edilir. Geçersiz dosya seçilirse önceki seçim temizlenir.
+2. **Yükle ve başlat** düğmesine basın ve gösterilen paket/yer değiştirme bilgisini onaylayın. Kartta tek uygulama saklanır; yenisi mevcut uygulamanın yerini alır.
+3. İlerlemeyi izleyin. **İptal** yarım yüklemeyi kurtarma modunda bırakır; yükleme baştan tekrarlanır.
+4. Flash CRC doğrulamasından ve uygulamanın hazır cevabından sonra başarı gösterilir; uygun çalışma sayfası açılır.
+
+UART güncelleyici bootloader ve son 16 KiB saat günlüğüne yazmaz. Bootloader 921600 8N1, runtime 115200 8N1 kullanır; hız geçişini Studio yönetir. Dijital imza uygulanmaz.
+
+**ST-LINK ile kontrol et**, Flash'taki DeviceBoot descriptor'ını okur. İletişim hatası “yüklü değil” sayılmaz. SWD okumasından sonra seri bağlantı kurulamazsa kartı RESET ile başlatıp yeniden bağlanın.
+
+**DeviceBoot kur / güncelle**, seçilen `DeviceBoot.bin` dosyası için ayrıca onay ister. Önce tam 4 MiB yedek ve SHA-256 değeri `Backup/<timestamp>/` içine kaydedilir; sonra yalnız bootloader/commit sayfaları güncellenir. Saat günlüğü korunur. Eski adrese derlenmiş uygulama uyumlu paket yüklenene kadar çalışamaz. Yedek yolu işlem günlüğünde görünür.
+
+**Bootloader’a geç** çalışan uygulamaya BOOT isteği gönderir. **Uygulamayı başlat** geçerli uygulamayı bootloader üzerinden çalıştırır. Kurtarma için USER butonunu basılı tutarak kartı resetleyin. Uygulama takılmışsa USER ile reset veya SWD teşhisi kullanılır.
+
+ST-LINK işlemleri için STM32CubeProgrammer gerekir. Windows ve macOS CubeIDE içindeki varsayılan konumlar aranır. Farklı kurulumda `STM32_PROGRAMMER_CLI` ortam değişkenini yürütülebilir dosyanın tam yoluna ayarlayın.
+
+`Firmware/` altında Smartwatch, Düello ve ADASLab paketleri vardır. Paket ZIP içinde `manifest.json` ve `firmware.bin` içerir. CLI araçları da korunur:
+
+```sh
+.venv/bin/python package_firmware.py ../Duello/Firmware/Duello.bin Firmware/Duello.dfw --name Duello
+.venv/bin/python package_firmware.py ../smart_watch-main/Firmware/Smartwatch.bin Firmware/Smartwatch.dfw --name Smartwatch
+.venv/bin/python package_firmware.py ../ADASLab/Firmware/ADASLab.bin Firmware/ADASLab.dfw --name ADASLab --id 3 --version 2
+.venv/bin/python flash_cli.py Firmware/ADASLab.dfw --port /dev/cu.usbmodem11103
 ```
 
-GUI kapatılınca veya USB kesilince Smartwatch, cihaz besleniyorsa çalışmaya devam eder. Düello'nun yürümesi beş saniye komut gelmediğinde durur. Animasyonlar cihazda çizilir; PC yalnız komut ve durum taşır.
+Port örneğini kendi portunuzla değiştirin; Windows'ta örneğin `COM5` olabilir. CLI ile çalışırken Studio bağlantısını kapatın.
 
-## Geri dönüş
+## Düello ve genel komutlar
 
-Normal uygulama dönüşü: başka `.dfw` paketini yüklemek. Custom bootloader kurulumu öncesine dönüş: `Backup/<timestamp>/before-deviceboot-flash.bin` tam yedeğini ST-LINK/SWD ile `0x08000000` adresine doğrulayarak geri yüklemek. Bu tüm Flash'ı, bootloader'ı ve yedekteki saat kayıtlarını geri getirir. Güncel saat kayıtlarını korumak için restore öncesi son 16 KiB'ı ayrıca yedekleyin. Otomatik eski sürüm rollback'i yoktur.
+Düello sayfasında **Silahı çıkar**, **Ateş et**, **Silahı yerine koy**, **Yeniden doldur**, **Yürü**, **Dur** ve **Sahneyi sıfırla** kontrolleri vardır. Silah, eylem, mermi ve hedef durumu karttan okunur. Animasyon sırasında firmware meşgul cevabı verebilir. Beş saniye komut/heartbeat gelmezse yürüme durur. Çizimler cihazda yapılır; PC video/piksel akışı göndermez.
 
-## Doğrulama
+Komut konsolu bağlı uygulamanın desteklediği tek token, en fazla 39 ASCII karakterlik komutları gönderir. `HELLO` ve `STATUS` ortak runtime komutlarıdır. `BOOT` bootloader geçişini yönetir; sonrasında kimlik/durum yenilenir. Smartwatch, cihaz besleniyorsa Studio kapalıyken de bağımsız çalışır.
 
-```powershell
-python -m unittest discover -s tests -v
-# Dikkat: Bu komut gerçek kartın firmware'ini değiştirir; sonrasında Smartwatch'ı geri yükler.
-python verify_hardware.py --port COM5
-# İlk kurulum da yapılacaksa:
-python verify_hardware.py --port COM5 --install
+## Yeni firmware ekleme
+
+DeviceBoot revizyon 2 / protokol 1 uygulama kimliklerini genişletebilir. Kullanılan kimlikler: `1=Smartwatch`, `2=Duello`, `3=ADASLab`. Yeni uygulamalar için benzersiz `4..0xFFFFFFFE` kimliği kullanın; `0` ve `0xFFFFFFFF` ayrılmıştır. Studio desteklenmeyen kimliği eski bootloader'a **BEGIN/Flash silme başlamadan** reddeder.
+
+Yeni firmware, uygulama adresi `0x0800A000`, descriptor `+0x400`, ayrılmış son 16 KiB ve RAM mailbox düzenine uymalıdır:
+
+```c
+#include "device_contract.h"
+__attribute__((section(".app_info"), used))
+const device_app_info_t device_app_info = { DEVICE_APP_MAGIC, 4U, 1U, DEVICE_PROTOCOL };
 ```
 
-`verify_hardware.py` için kart önce bootloader modunda olmalıdır; UI'dan **Bootloader moduna geç** kullanılabilir. `hardware-report.json` gerçek UART yüklemelerinin, runtime komutlarının, kesilmiş yükleme kurtarmasının ve 16 KiB kayıt alanının byte-for-byte korunmasının sonucudur. Otomatik test panel fotoğrafı veya uzun süreli güç kesintisi testi değildir.
+`device_runtime_init("MyApp", handler)` ortak HELLO/STATUS/BOOT ve kimlik/sürüm cevabını sağlar. `handler(const char *command)` geçerli JSON nesnesine işaretçi döndürür. UART/DMA bağlantısı için Düello veya ADASLab kaynaklarını örnek alın. Tam cevap 512 bayt TX tamponuna sığmalıdır.
 
-ST-LINK işlemleri için STM32CubeProgrammer gerekir. Varsayılan CubeIDE / CubeProgrammer konumları aranır; farklı yerdeyse `STM32_PROGRAMMER_CLI` ortam değişkenine tam exe yolunu verin. Yedekler, yerel Python bağımlılıkları ve kişisel ayarlar Git'e gönderilmez.
+```sh
+.venv/bin/python package_firmware.py ../MyApp/Firmware/MyApp.bin Firmware/MyApp.dfw --name MyApp --id 4 --version 1
+```
+
+Kimlik ve sürüm varsayılan olarak binary descriptor'ından okunur; uyuşmayan açık değerler reddedilir. Ad 1–48 karakter olmalı, ASCII harfle başlamalı ve yalnız harf/rakam, `_`, `.`, `-` içermelidir. Mevcut uygulama adları/kimlikleri tekrar kullanılmamalıdır. Runtime adı paket adıyla eşleşmelidir. Özel arayüzü olmayan uygulama Komut konsolu sayfasında kontrol edilebilir.
+
+## Testler
+
+```sh
+.venv/bin/python -m unittest discover -s tests -v
+# Genel sayfalar, yükleme onayı ve konsol; sanal cihaz, Flash yazılmaz:
+.venv/bin/python tools/verify_qt_ui.py
+# Yenileme sırasında gerçek fare/klavye, taslak metin ve odak:
+.venv/bin/python tools/verify_qt_interaction.py
+# Gerçek 3B pencere + derlenmiş ARM C kodu ve saat dokunma işleyicisi:
+.venv/bin/python tools/verify_game_ui.py --capture-dir build/embedded-3d-arm
+# Aynı akış, önceden yüklü fiziksel kartta (portu kendi cihazınızla değiştirin):
+.venv/bin/python tools/verify_game_ui.py --backend hardware --port /dev/cu.usbmodem11403 --capture-dir build/embedded-3d-hardware
+```
+
+3B arayüz testleri Qt'nin yerel RHI/GPU çizimini gerektirir; `QT_QUICK_BACKEND=software` View3D çizmez. ARM testi LVGL'nin çağırdığı gerçek `adas_game_touch` fonksiyonunu çalıştırır. Fiziksel kart testindeki ayar/başlat istekleri mevcut G/H protokolünün eşdeğeridir; fiziksel parmak dokunuşu otomatikleştirilmez. Bu kontroller Flash'a yazmaz. Donanım testi öncesi açık Studio bağlantısını kapatın.
+
+Güncel sonuçlar [embedded-3d-verification.json](embedded-3d-verification.json), ekran görüntüleri `build/embedded-3d-*/` altındadır. Önceki `game-verification.json`, `godot-verification.json`, `standalone-verification.json` önceki mimarilerin kayıtlarıdır. Windows başlatıcısı aynı giriş noktasını kullanır; bu geliştirme macOS Metal üzerinde doğrulanmıştır.
+
+Normal uygulama dönüşü başka `.dfw` paketini yüklemektir. İlk bootloader kurulumu öncesine tam dönüş, `Backup/<timestamp>/before-deviceboot-flash.bin` dosyasını SWD ile `0x08000000` adresine doğrulayarak geri yüklemektir. Bu tüm Flash'ı ve yedekteki saat kayıtlarını geri getirir. Yedekler, `.venv`, yerel bağımlılıklar ve kişisel ayarlar Git'e dahil edilmez.

@@ -1,0 +1,7 @@
+from pathlib import Path
+root=Path(Dir('#').abspath).parents[1]
+env=SConscript(str(root/'.tools/godot-cpp/SConstruct'))
+env.Append(CPPPATH=[str(root/'native/serial')])
+name=str(root/'godot/adas_drive/native/libadas_serial')+env['suffix']+env['SHLIBSUFFIX']
+library=env.SharedLibrary(target=name,source=['serial.cpp'])
+Default(library)

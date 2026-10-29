@@ -1,0 +1,128 @@
+{
+  "scope": "Physical STM32U5A9J-DK UART closed-loop tests; no physical sensors",
+  "checks": [
+    {
+      "name": "ADASLab ID 3 starts under DeviceBoot revision 2",
+      "passed": true
+    },
+    {
+      "name": "brake: no collision",
+      "passed": true
+    },
+    {
+      "name": "brake: real GPU and LCD presentation counters advance",
+      "passed": true
+    },
+    {
+      "name": "follow: no collision",
+      "passed": true
+    },
+    {
+      "name": "follow: real GPU and LCD presentation counters advance",
+      "passed": true
+    },
+    {
+      "name": "cutin: no collision",
+      "passed": true
+    },
+    {
+      "name": "cutin: real GPU and LCD presentation counters advance",
+      "passed": true
+    },
+    {
+      "name": "cruise: no collision",
+      "passed": true
+    },
+    {
+      "name": "cruise: real GPU and LCD presentation counters advance",
+      "passed": true
+    },
+    {
+      "name": "CRC-damaged measurement is rejected",
+      "passed": true
+    },
+    {
+      "name": "Duplicate timestamp is rejected",
+      "passed": true
+    },
+    {
+      "name": "Missing samples disable acceleration after 500 ms",
+      "passed": true
+    },
+    {
+      "name": "PAUSE clears control output",
+      "passed": true
+    },
+    {
+      "name": "16 KiB settings journal preserved byte for byte",
+      "passed": true
+    }
+  ],
+  "scenarios": [
+    {
+      "scenario": "brake",
+      "minimum_gap_m": 6.038,
+      "modes": [
+        "ACC",
+        "AEB",
+        "WARNING"
+      ],
+      "samples": 240,
+      "rtt_mean_ms": 31.93,
+      "rtt_max_ms": 40.15,
+      "deadline_overruns": 0,
+      "compute_max_us": 19,
+      "frame_max_ms": 35,
+      "gpu": 39621,
+      "frames": 1271
+    },
+    {
+      "scenario": "follow",
+      "minimum_gap_m": 37.366,
+      "modes": [
+        "ACC"
+      ],
+      "samples": 240,
+      "rtt_mean_ms": 32.4,
+      "rtt_max_ms": 43.47,
+      "deadline_overruns": 0,
+      "compute_max_us": 20,
+      "frame_max_ms": 35,
+      "gpu": 48007,
+      "frames": 1529
+    },
+    {
+      "scenario": "cutin",
+      "minimum_gap_m": 9.902,
+      "modes": [
+        "ACC",
+        "WARNING"
+      ],
+      "samples": 240,
+      "rtt_mean_ms": 32.18,
+      "rtt_max_ms": 42.74,
+      "deadline_overruns": 0,
+      "compute_max_us": 19,
+      "frame_max_ms": 35,
+      "gpu": 56955,
+      "frames": 1788
+    },
+    {
+      "scenario": "cruise",
+      "minimum_gap_m": 70.0,
+      "modes": [
+        "ACC"
+      ],
+      "samples": 240,
+      "rtt_mean_ms": 31.71,
+      "rtt_max_ms": 41.12,
+      "deadline_overruns": 0,
+      "compute_max_us": 19,
+      "frame_max_ms": 35,
+      "gpu": 64536,
+      "frames": 2046
+    }
+  ],
+  "settings_sha256": "1842e540fd9040e44181b8bd5c2d4f8680858ea04fff7b83263cc872100ed2df",
+  "passed": true
+}

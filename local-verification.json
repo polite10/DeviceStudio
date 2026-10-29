@@ -1,0 +1,20 @@
+{
+  "scope": "Previous firmware verification retained; current Qt UI verification is in qt-verification.json",
+  "studio_tests": 45,
+  "bootloader_arm_checks": 26,
+  "duello_runtime_arm_checks": 9,
+  "uart_dma_arm_checks": 85,
+  "firmware_sha256": {
+    "DeviceBoot/Firmware/DeviceBoot.bin": "ed4fba2f2ea52e05f8e2bbcd29fcc3be5d62f415064cf0c5f94308e6484dc3d7",
+    "Duello/Firmware/Duello.bin": "e08e6e32021f06cb5d973e5fb66dae4760438947d0ee4405161111b6934da1c3",
+    "smart_watch-main/Firmware/Smartwatch.bin": "2902206dc48cfbc143354d4c5013bc9a9e5153e8f8fc0a0f08efa41d5262b535",
+    "ADASLab/Firmware/ADASLab.bin": "4af819373923ab36310806e53b2373ce68c313c456a626e01c1870b3be53fef3"
+  },
+  "known_warning": "Existing watch_arcade_view.c:325 signed/unsigned comparison",
+  "windows_execution_tested": false,
+  "adas_control_checks": 31,
+  "adas_arm_integration_checks": 11,
+  "adas_hardware_checks": 14,
+  "adas_hardware_passed": true,
+  "qt_ui_report": "qt-verification.json"
+}

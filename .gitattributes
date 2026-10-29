@@ -1,2 +1,10 @@
 * text=auto
 *.dfw -text
+
+# Preserve original vendor license bytes and line endings.
+godot/adas_drive/assets/**/LICENSE.txt -text whitespace=-blank-at-eol,-blank-at-eof
+
+godot/adas_drive/native/LICENSE.*.txt -text whitespace=-blank-at-eol,-blank-at-eof
+
+# Generated Qt vehicles retain the same unmodified CC0 license.
+device_studio/qml/assets/vehicles/LICENSE.txt -text whitespace=-blank-at-eol,-blank-at-eof

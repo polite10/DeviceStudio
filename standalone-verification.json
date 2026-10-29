@@ -1,0 +1,63 @@
+{
+  "date": "2026-10-29",
+  "application": "ADASLab Drive 1.0.0",
+  "target": "macOS Apple Silicon",
+  "python_unit_tests": 100,
+  "native_world_checks": 14,
+  "release_watch_qa": {
+    "passed": true,
+    "application": "~/Applications/ADASLab Drive.app",
+    "bundle_id": "dev.adaslab.drive",
+    "version": "1.0.0",
+    "native": {
+      "backend": "DIRECT_UART",
+      "checks": [
+        "Game owns native USB without Studio or TCP",
+        "ADAS controls are owned by the watch, not PC menu",
+        "PC settings cannot override watch mode",
+        "Watch target speed and headway are authoritative",
+        "W accelerates through native USB controller",
+        "Gas aliases release independently",
+        "Auto-repeat cannot repeat steering",
+        "Native pause clears actual MCU output",
+        "ACC acceleration comes directly from the watch",
+        "Focus loss stops the watch run request",
+        "Warning/off do not actuate",
+        "Warning mode warns from actual MCU decisions",
+        "Warning/off do not actuate",
+        "Off mode suppresses warnings",
+        "Real watch AEB overrides gas in standalone game",
+        "Release viewport captured",
+        "Reconnect never resumes a stale run",
+        "Release exits during a run to verify MCU cleanup"
+      ],
+      "count": 18,
+      "debug_build": false,
+      "direct_uart": true,
+      "duration": 25.1,
+      "error": "",
+      "fps": 55.0,
+      "passed": true,
+      "rendering_method": "forward_plus"
+    },
+    "release_template": true,
+    "independent_working_directory": true,
+    "signature_verified": true,
+    "mcu_paused_after_exit": true,
+    "firmware_unchanged": true,
+    "scope": "Real release process/native USB/watch controller; synthetic engine input events"
+  },
+  "runtime_dependencies": {
+    "studio": false,
+    "python": false,
+    "godot_editor": false,
+    "tcp_bridge": false
+  },
+  "settings_owner": "ADASLab v2 firmware on watch",
+  "firmware_programmed": false,
+  "limitations": [
+    "QA uses synthetic Godot key events and existing firmware panel APIs, not physical finger automation.",
+    "Only macOS Apple Silicon was built and tested.",
+    "The local bundle is ad-hoc signed; no store distribution or notarization was performed."
+  ]
+}
