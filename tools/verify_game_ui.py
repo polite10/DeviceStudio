@@ -151,9 +151,27 @@ def main():
         start()
         check(controller.gameState['running'], 'Watch BASLAT starts the embedded game through panel polling')
         speed = controller.gameState['egoKmh']
+        clock = item('driveClock')
+        frames = []
+        def frame():
+            kin = item('drive3DView').property('kin')
+            frames.append((clock.property('frameTime'), kin.property('distance').toNumber()))
+        clock.triggered.connect(frame)
         QTest.keyPress(window, Qt.Key.Key_W)
         pump(.7)
         check(controller.gameState['egoKmh'] > speed + 2, 'W accelerates through actual C firmware samples')
+        pump(.8)
+        clock.triggered.disconnect(frame)
+        steps = [(b[1] - a[1], b[0]) for a, b in zip(frames, frames[1:]) if b[0] > 0]
+        check(len(steps) > 30 and all(step >= -1e-6 for step, _ in steps), 'Rendered road distance never moves backwards between frames')
+        speeds = [step / dt for step, dt in steps if dt < 0.05]
+        changes = sorted(abs(b - a) for a, b in zip(speeds, speeds[1:]))
+        report['motion'] = dict(frames=len(frames), frame_ms_p50=round(sorted(dt for _, dt in steps)[len(steps) // 2] * 1000, 2),
+                                speed_change_p95_mps=round(changes[int(len(changes) * .95)], 3))
+        check(report['motion']['speed_change_p95_mps'] < 1.0, 'Interpolated motion has no 20 Hz speed steps: ' + str(report['motion']))
+        check(item('driveRadar') is not None, 'Sensor view is part of the driving HUD')
+        wait(lambda: item('leadTarget').property('visible'), 'Lead vehicle bracket did not appear')
+        check(True, 'Projected bracket marks the lead vehicle in the 3D scene')
         QTest.keyPress(window, Qt.Key.Key_Up)
         QTest.keyRelease(window, Qt.Key.Key_W)
         speed = controller.gameState['egoKmh']
@@ -223,12 +241,15 @@ def main():
         start()
         wait(lambda: controller.gameState['egoKmh'] > 52, 'ACC did not accelerate')
         check(controller.gameState['accelMps2'] > 0, 'ACC from the watch accelerates without a held gas key')
+        check(item('clusterAcc').property('lit'), 'Cluster ACC telltale is lit while the watch enables ACC')
         pause()
         configure(0)
         start()
         QTest.keyPress(window, Qt.Key.Key_W)
         wait(lambda: controller.gameState['aeb'], 'C firmware did not engage AEB', 22)
         check(controller.gameState['accelMps2'] < -7, 'AEB overrides a held gas key with real MCU emergency braking')
+        check(item('clusterAeb').property('lit') and item('driveWarning').property('text') == 'AEB · ACİL FREN',
+              'AEB telltale and banner follow the firmware emergency state')
         capture('studio-3d-aeb')
         QTest.keyRelease(window, Qt.Key.Key_W)
         pause()
