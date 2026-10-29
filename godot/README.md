@@ -1,63 +1,54 @@
-# ADASLab Drive — Godot 3B görünümü
+# ADASLab Drive — bağımsız oyun
 
-Studio'nun yönettiği trafik dünyasını gerçek 3B modellerle gösteren ayrı oyun penceresi. Model/ışık/gölge/kamera ve klavye girişi Godot'ta; fizik, senaryolar ve USB bağlantısının sahibi Python Studio'dur. ACC/AEB kararları karttaki mevcut ADASLab v2 C firmware'inde hesaplanır.
+Normal kullanımda **Studio, Python veya Godot editörü açılmaz**. macOS release uygulaması USB seri portuna kendi yerel eklentisiyle doğrudan bağlanır. ADAS modu, ACC, hedef hız, takip süresi ve başlat/duraklat isteğinin kaynağı saatteki ADASLab v2 firmware'idir.
 
-## Çalıştırma
+## Kullanım
+
+1. Saati ST-LINK USB girişinden bağlayın.
+2. Kullanıcı Uygulamaları klasöründeki **ADASLab Drive.app** uygulamasını açın. Spotlight ile de bulunabilir.
+3. Saat ekranından modu, ACC'yi, hedef hızı ve takip süresini seçin; **BASLAT** düğmesine dokunun.
+4. Bilgisayarda W/↑ gaz, S/↓ fren, A–D/←→ şerit, Boşluk/Esc duraklatma, C/F kamera değişimidir.
+
+Oyunun menüsü saatteki ADAS ayarlarını yalnız gösterir. **Yolu sıfırla** yeni trafik sürüşünü hazırlar; sürüşü tekrar saatten başlatın. Pencere odağı kaybolunca, USB kesilince veya uygulama kapanınca tuşlar bırakılır ve saate duraklatma gönderilir. Yeniden bağlantı eski sürüşü otomatik sürdürmez. USB portu gerekirse menüden seçilebilir.
+
+Saatte mevcut **ADASLab v2 / DeviceBoot v2** yeterlidir. Bu değişiklik için firmware yeniden yüklenmez. Studio ayrı bir firmware yükleme ve teşhis aracı olarak kalır.
+
+## Mimari
+
+- Godot ana iş parçacığı: 3B sahne, kamera, HUD ve klavye.
+- Godot arka plan işçisi: tek sahipli USB bağlantısı ve onaylanan örnekten sonra 50 ms trafik fiziği adımı.
+- Yerel C++ GDExtension: işletim sisteminin seri port API'si. macOS'ta özel TTY sahipliği, sınırlı okuma ve yazma kullanılır.
+- Saatte C: FCW/AEB/ACC kararları ve ayarlar. Oyunda yerel TTC/AEB denetleyicisi kopyası bulunmaz.
+
+Görüntü, ardışık onaylanmış konumlar arasında yumuşatılır. Eski kontrol cevabıyla fizik ilerletilmez. Yerel işçi, ana pencerenin güncelliğini de izler; pencere takılırsa sürüş durur. Saatin mevcut 500 ms veri eskime koruması ayrıca korunur. Normal oyunda TCP sunucusu veya yardımcı Python işlemi yoktur.
+
+## Geliştirici derlemesi
+
+Doğrulanan paket hedefi macOS Apple Silicon'dur. Windows/Linux için bu görevde yerel paket üretilmedi.
 
 ```sh
-# Resmi motoru indirir, SHA512 doğrular, yalnız .tools/godot altına açar:
 .venv/bin/python tools/install_godot.py
-# Gerçek kart ile Studio + 3B oyun:
-./Start.command --game
-# Derlenmiş ARM firmware ile, fiziksel karta erişmeden:
-./Start.command --game-sim
+.venv/bin/python -m pip install scons==4.11.1
+.venv/bin/python tools/build_standalone.py --install
 ```
 
-Windows: `./Start.ps1 --game`; bağımsız motor varsa `GODOT_BIN` yürütülebilir dosyasını gösterebilir. Kaynak projede `godot/adas_drive/project.godot` açılarak sahne düzenlenebilir. İlk açılışta modeller arka planda aktarılır; Studio kullanılabilir durumda kalır. Motor ve `.godot` önbelleği Git'e dahil edilmez.
+Derleyici Xcode Command Line Tools içinden gelir. Betik resmi Godot 4.7.2 release şablonunu SHA512 ile doğrular; Godot C++ 4.5 SDK'sını proje `.tools` dizininde kullanır. Yerel kütüphane derlenir, release oyun paketi oluşturulur, Apple Silicon yürütülebiliri ve yerel ad-hoc imzası doğrulanır. `--install`, paketi `~/Applications/ADASLab Drive.app` konumuna kopyalar. Bu yerel imza App Store/notarization dağıtımı değildir.
 
-Studio'daki **3B sürüşü aç** düğmesi de aynı pencereyi başlatır. **Sürüşü başlat** ile oyun başlar; W/↑ gaz, S/↓ fren, A–D/←→ şerit, Boşluk/Esc duraklatma, C/F kamera değişimidir. Duraklatma menüsünde destek modu, ACC, hedef hız ve trafik tohumu seçilir. Aynı tohum ve aynı sürücü girdileri aynı trafik akışını tekrarlar.
+Kaynak dosyalar: `native_host.gd` (USB/saat sahibi), `native_world.gd` (trafik), `main.gd` (görünüm), `native/serial/serial.cpp` (yerel seri port).
 
-Pencere odağı kaybolunca tuşlar bırakılır ve sürüş duraklar. Studio odağını Godot'a devrederken Godot'un güncel odak bildirimi dikkate alınır. Godot kapanır/bağlantı kesilirse Studio sürüşü durdurur. Kart ekranı mevcut başlat/duraklat, mod, hedef hız ve takip süresi işlevlerini korur. Karttan başlatma için Studio veya 3B oyun penceresinin etkin olması gerekir.
-
-Eski QML görünümü `--game-2d` veya `--game-2d-sim` ile kullanılabilir. Mevcut ADAS laboratuvarı, konsol ve firmware yükleme ekranları korunur.
-
-## Veri akışı
-
-Tek bir Python işçisi UART'ın sahibidir. Godot UART açmaz ve bağımsız araç fiziği yürütmez. Python yalnız karttan onaylanan ölçümden sonra fizik adımını ilerletir (50 ms). TCP sahne güncellemeleri 20 Hz; GPU çizimi ekranın yenileme hızında çalışır. Önceki ve güncel onaylı konum arasında ara kareler çizilir; son ölçümün ötesine fizik tahmini yapılmaz. 60 FPS bir performans hedefidir.
-
-TCP sunucusu yalnız `127.0.0.1` üzerinde rastgele portta dinler. Her çalıştırma ayrı token kullanır. Tek istemci, satır başına en fazla 64 KiB, GUI turu başına sınırlı mesaj, en güncel sahneyi tutan sınırlı çıktı tamponu vardır. Motor 100 ms'de bir odak/yaşam bildirimi gönderir; 350 ms'den eski istemci düşürülür ve sürüş durdurulur.
-
-Satır sonlu JSON protokolü:
-
-```json
-{"type":"hello","protocol":1,"token":"oturuma-özel"}
-{"type":"heartbeat","active":true}
-{"type":"input","key":"w","pressed":true,"repeat":false}
-{"type":"action","name":"pause"}
-{"type":"setting","key":"mode","value":"warn"}
-```
-
-Studio: `{"type":"state","protocol":1,"state":{...},"connected":true,"backend":"STM32_UART"}`. `ARM_SIM` gerçek derlenmiş firmware kodunu Unicorn'da çalıştırır. `--demo` yalnız görsel kontrol için ayrı bir örnek trafik üretir ve ekranda açıkça DEMO olarak gösterilir.
-
-## Grafikler ve kaynaklar
-
-Gerçek üç boyutlu araç modelleri, ayrı tekerlekler ve fren lambaları; arka takip/kaput kameraları; ışık, gölge, sis, çevre ve asfalt/şerit geometrisi kullanılır. Varlıklar Quaternius ve Kenney'nin CC0 modelleridir. Lisans, kaynak URL'leri ve bütünlük değerleri [assets/ATTRIBUTION.md](adas_drive/assets/ATTRIBUTION.md) ve [assets/sources.json](adas_drive/assets/sources.json) içindedir.
-
-Bu sahne bir eğitim simülasyonudur. Görsel süspansiyon/tekerlek hareketleri araç dinamiği doğrulaması yerine geçmez; fiziksel sensör veya görüntü işleme eklenmemiştir.
-
-## Doğrulama
-
-2026-10-29: 99 Python/birim testi, 58 korunmuş QML oyun kontrolü, 16 yenileme etkileşimi ve QML lint geçti. Gerçek Godot işlemiyle ARM simülasyonunda 27 motor kontrolü + 12 host kontrolü; fiziksel ADASLab v2 kartıyla native Metal görünümünde 31 motor kontrolü + 12 host kontrolü geçti. Modlar, bağımsız gaz tuşları, şerit/fren, ayar taslağı/imleç, odak kaybı, kamera değişimi ve motor kapanışında MCU PAUSE doğrulandı. Son native örnekte 60 FPS ölçüldü. Ayrıntılar [godot-verification.json](../godot-verification.json) içinde.
+## Test
 
 ```sh
-# Önce import (normal Studio açılışı bunu arka planda yapar):
-.tools/godot/Godot.app/Contents/MacOS/Godot --headless --editor --path godot/adas_drive --import --quit
-# Kart olmadan gerçek motor + ARM ELF:
-.venv/bin/python tools/verify_godot_session.py
-# Önceden ADASLab v2 yüklenmiş gerçek kart + native 3B pencere:
-.venv/bin/python tools/verify_godot_session.py --visible --backend hardware --port /dev/cu.usbmodem11403 --output-dir build/godot-hardware-qa
+# Saf yerel trafik/protokol testleri; fiziksel karta erişmez:
+.tools/godot/Godot.app/Contents/MacOS/Godot --headless --path godot/adas_drive --script "$PWD/tests/godot/native_world_test.gd"
+# Kurulu gerçek release uygulaması + gerçek saat; Flash'a yazmaz:
+.venv/bin/python tools/verify_standalone.py --app "$HOME/Applications/ADASLab Drive.app" --port /dev/cu.usbmodem11403
 ```
 
-Portu kendi cihazınıza göre değiştirin; önce açık Studio bağlantısını kapatın. Testler Flash'a yazmaz. Godot tuş testleri normal motor girdi hattına sentetik olay gönderir; fiziksel klavye/parmak otomasyonu değildir. Windows/Linux üzerinde native grafik çalıştırması yapılmadı.
+Portu kendi cihazınıza göre değiştirin ve testten önce açık oyunu kapatın. Testler normal Godot giriş hattına sentetik klavye olayları gönderir; saat paneli istekleri mevcut firmware protokolüyle uygulanır. Fiziksel parmak dokunuşu otomatikleştirilmez.
 
-![Gerçek kartla 3B sürüş ve AEB](../docs/adaslab-drive-3d.png)
+Eski Studio/TCP ve ARM karşılaştırma akışı yalnız geliştirici teşhisi olarak kaynakta korunur. Normal uygulama açılışının bağımlılığı değildir. Varlık lisansları [assets/ATTRIBUTION.md](adas_drive/assets/ATTRIBUTION.md) içindedir.
+
+2026-10-29 doğrulaması: 100 Python/Studio regresyon testi, 14 yerel trafik/protokol kontrolü ve kurulu gerçek release paketiyle 18 saat/oyun kontrolü geçti. `debug_build=false`, doğrudan USB, bağımsız çalışma dizini, imza ve kapanışta MCU duraklatma doğrulandı. Ayrıntılar [standalone-verification.json](../standalone-verification.json) içindedir.
+
+![Bağımsız release oyunu](../docs/adaslab-drive-standalone.png)

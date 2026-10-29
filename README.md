@@ -12,8 +12,8 @@ Windows / PowerShell:
 ./Start.ps1
 # Karttaki ADASLab'a bağlanıp varsayılan deneyi başlat:
 ./Start.ps1 --adas
-# Trafik oyununa bağlan; sürüşü Başlat düğmesiyle başlat:
-./Start.ps1 --game
+# İsteğe bağlı eski QML deney görünümü:
+./Start.ps1 --game-2d
 ```
 
 macOS:
@@ -40,7 +40,7 @@ Windows'ta son iki komut için `.venv\Scripts\python.exe` kullanın. Başlatma s
 | `--connect` | Seçili ST-LINK seri portuna bağlanır. |
 | `--adas` | Gerçek karta bağlanır; kartta ADASLab çalışıyorsa deneyi başlatır. Firmware yüklemez. |
 | `--adas-sim` | Derlenen ARM ELF ile laboratuvar deneyini başlatır; fiziksel karta erişmez. |
-| `--game` | Gerçek karta bağlanır; Godot 3B oyun penceresini açar. Sürüşü kullanıcı başlatır. |
+| `--game` | Studio açmadan bağımsız release uygulamasını başlatır; ayarlar ve başlatma saatten yönetilir. |
 | `--game-sim` | ARM ELF denetleyicisiyle Godot 3B oyununu açar; fiziksel karta erişmez. |
 | `--game-2d` / `--game-2d-sim` | Mevcut QML trafik görünümünü gerçek kartla / ARM simülasyonuyla açar. |
 
@@ -69,26 +69,24 @@ Bağlantıdan sonra çalışan uygulamaya uygun sayfa açılır. Alt çubuktaki 
 
 PuTTY, başka bir Studio veya CubeIDE seri terminali aynı portu açık tutmamalıdır. Tek işçi seri portun sahibidir; deney, oyun veya yükleme sırasında çakışan komutlar kapalıdır. Boştaki durum sorgusu düğmeleri kilitlemez; sorgu sırasında yapılan kullanıcı işlemleri aynı seri işçide sıraya alınır. Telemetri, port listesi ve ayarlar ayrı bildirimlerle güncellendiği için seçimler ve klavye odağı her örnekte yeniden kurulmaz. Aktif işlem varken pencere kapatılırsa iptal/duraklatma istenir ve işçinin temizliği tamamlanınca kapanır. Kesilemeyen bootloader kurulumu tamamlanana kadar beklenir.
 
-## Gerçek 3B sürüş görünümü
+## ADASLab Drive — bağımsız oyun
 
-`--game` ve `--game-sim`, artık Studio ile birlikte ayrı bir Godot 3B sürüş penceresi açar. Gerçek araç modelleri, gölgeler, asfalt, yol çevresi ve takip/kaput kamerası kullanılır. Seri port ve fizik Studio'da, ADAS kararları mevcut C firmware'inde kalır. Kart firmware'ini bu grafik güncellemesi için yeniden yüklemek gerekmez.
+3B oyun artık **Studio'dan bağımsız macOS release uygulamasıdır**. Kullanıcı Uygulamaları klasöründeki **ADASLab Drive.app** doğrudan açılır. Studio, Python, Godot editörü veya TCP köprüsü gerekmez; DEBUG başlığı yoktur.
+
+Saat USB ile bağlanır. ADAS modu, ACC, hedef hız, takip süresi ve **BASLAT / DURAKLAT** saat ekranından yönetilir. Bilgisayarda WASD/oklar sürüş, Boşluk/Esc duraklatma ve C/F kamera değişimidir. Menü saatteki ADAS ayarlarını salt okunur gösterir.
+
+Godot uygulaması yerel C++ seri port eklentisini kullanır. Trafik fiziği Godot'ta, ADAS kararları saatteki mevcut C firmware'inde çalışır. Mevcut ADASLab v2 yeterlidir; grafik/uygulama ayrımı için firmware yeniden yüklenmez.
 
 ```sh
-.venv/bin/python tools/install_godot.py
+# Geliştirici ortamında release paketi üretip kullanıcı Uygulamaları'na kurar:
+.venv/bin/python tools/build_standalone.py --install
+# Hazır bağımsız paketi açar; Studio/Python ortamını başlatmaz:
 ./Start.command --game
-# Kart olmadan derlenmiş ARM denetleyicisiyle:
-./Start.command --game-sim
 ```
 
-Studio'daki **3B sürüşü aç** düğmesi de kullanılabilir. Godot penceresinde **Sürüşü başlat**, WASD/oklar ile sürüş, Boşluk/Esc ile duraklatma, C/F ile kamera değişimi vardır. Mod, ACC, hedef hız ve trafik tohumu duraklatma menüsünden seçilir. Başka pencereye geçince veya oyun bağlantısı kesilince sürüş durur.
+Ayrıntılar [bağımsız oyun belgesinde](godot/README.md). Studio firmware yükleme ve teşhis aracı olarak ayrıca kullanılabilir.
 
-Mevcut QML oyununu ayrıca açmak için `--game-2d` / `--game-2d-sim` kullanın. Motor kurulum, mimari ve protokol ayrıntıları [Godot kullanım belgesinde](godot/README.md). İlk çalıştırmada model aktarımı arka planda tamamlanır; motor `.tools/godot` altında tutulur ve Git'e eklenmez.
-
-Gerçek kartla 3B sürüş doğrulandı; motor ve host test sonuçları [godot-verification.json](godot-verification.json) içinde.
-
-![ADASLab Drive 3B görünümü](docs/adaslab-drive-3d.png)
-
-## Trafik oyunu: ilk sürüş
+## Eski QML trafik görünümü (geliştirici)
 
 Kartta **ADASLab v2 (ID 3)** ve DeviceBoot revizyon 2 bulunmalıdır. Eski ADASLab v1 laboratuvar deneyleri çalışmaya devam eder; oyun için v2 paketi yüklenir. Sensör gerekmez: trafik ve araç fiziği bilgisayarda, FCW/AEB/ACC kararları C firmware'inde çalışır. USB üzerinden ölçüm ve kontrol verisi taşınır; karttan video aktarılmaz.
 
