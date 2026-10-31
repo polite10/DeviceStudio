@@ -90,6 +90,7 @@ class StudioController(QObject):
                           accelMps2=0., ttc=-1., gap=-1., warning=False, aeb=False, traffic=[],
                           score=0, collisions=0, nearMisses=0, warnings=0, interventions=0,
                           reactionMs=-1, results=[], rttMs=0., overruns=0, devicePanel=False,
+                          flight=False, layer=0, altitude=0., landingBlocked=False,
                           renderer3dAvailable=find_godot(ROOT) is not None,
                           renderer3dConnected=False, renderer3dMessage='3B sürüş penceresi kapalı')
         self._cancel = threading.Event()
@@ -738,7 +739,16 @@ class StudioController(QObject):
 
     def _game_config(self):
         return GameConfig(mode=self._game['mode'], acc=self._game['accEnabled'], target_kmh=self._game['targetKmh'],
-                          headway_ms=self._game['headwayMs'], seed=self._game['seed'])
+                          headway_ms=self._game['headwayMs'], seed=self._game['seed'], flight=self._game['flight'])
+
+    @Slot(bool)
+    def setFlightVehicle(self, flight):
+        """The ego car picked in the 3D view; a flying car gets R/F flight layers."""
+        if self._game['running'] or self._game['flight'] == bool(flight):
+            return
+        self._game.update(flight=bool(flight), layer=0, altitude=0., landingBlocked=False)
+        self._game_world = None
+        self._publish()
 
     @Slot(str, 'QVariant')
     def setGameOption(self, key, value):

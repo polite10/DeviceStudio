@@ -30,9 +30,37 @@ FocusScope {
     readonly property bool choosing: !playing && game.status !== "paused"
     readonly property var cars: [
         {id: "sahin", name: "Tofaş Şahin", note: "1980'ler · klasik sedan", variant: 5, paint: "#b5221f", metallic: 0.15},
-        {id: "model3", name: "Tesla Model 3", note: "Elektrikli · cam tavan", variant: 6, paint: "#f2f4f5", metallic: 0.08}]
+        {id: "model3", name: "Tesla Model 3", note: "Elektrikli · cam tavan", variant: 6, paint: "#f2f4f5", metallic: 0.08},
+        {id: "roadster", name: "Tesla Roadster", note: "Uçar · ters rampadan", variant: 7, paint: "#eef0f1", metallic: 0.05, flight: true}]
     readonly property var egoCar: cars.find(car => car.id === garage.car) || cars[0]
-    onEgoCarChanged: drive.settle()
+    // The Roadster flies: three layers on R/F, barrel-roll lane changes, and its
+    // drive starts hanging upside down under a half-pipe ramp, like the reveal.
+    readonly property bool flying: Boolean(egoCar.flight)
+    // Read the car itself: the flying binding may not have re-evaluated yet.
+    onEgoCarChanged: { drive.settle(); if (studio) studio.setFlightVehicle(Boolean(egoCar.flight)) }
+    readonly property real rampCeiling: 6.49
+    readonly property real introTime: 1.7
+    // Half-pipe cross-section (x, y): quarter-pipe kickers tangent to the road at
+    // the shoulders, then a round crown whose underside holds the waiting car.
+    readonly property var rampSegments: {
+        const points = [], radius = 5.4, centre = 6.6 - radius, kicker = 1.2
+        for (let i = 0; i <= 6; ++i) {
+            const a = Math.PI / 2 * i / 6
+            points.push([radius + kicker - kicker * Math.sin(a), kicker - kicker * Math.cos(a)])
+        }
+        for (let i = 1; i <= 24; ++i)
+            points.push([radius * Math.cos(Math.PI * i / 24), centre + radius * Math.sin(Math.PI * i / 24)])
+        for (let i = 5; i >= 0; --i) {
+            const a = Math.PI / 2 * i / 6
+            points.push([-(radius + kicker - kicker * Math.sin(a)), kicker - kicker * Math.cos(a)])
+        }
+        const segments = []
+        for (let i = 1; i < points.length; ++i) {
+            const [x0, y0] = points[i - 1], [x1, y1] = points[i]
+            segments.push([(x0 + x1) / 2, (y0 + y1) / 2, Math.atan2(y1 - y0, x1 - x0) * 57.2958, Math.hypot(x1 - x0, y1 - y0) + 0.02])
+        }
+        return segments
+    }
     Settings { id: garage; category: "drive"; property string car: "sahin" }
     property bool settling: true
     function settle() { drive.settling = true; settleTimer.restart() }
@@ -49,7 +77,8 @@ FocusScope {
         clock: 0, renderT: 0, leadAverage: 0.1, buffer: [], target: 1,
         distance: 0, speed: 0, accel: 0, lane: 1, x: 0, lateral: 0, latAccel: 0, yaw: 0,
         pitch: 0, pitchRate: 0, roll: 0, rollRate: 0, signalSide: 0, signalUntil: 0,
-        camX: 0, camBack: 9.2, orbit: 0, idle: 0, shake: 0, blink: false, lastBlink: false, lead: -1, slots: []
+        camX: 0, camBack: 9.2, orbit: 0, idle: 0, shake: 0, blink: false, lastBlink: false, lead: -1, slots: [],
+        alt: 0, lastAlt: 0, renderAlt: 0, rollFrom: 1, intro: -1, rampAt: 0, wing: 0, puff: -1
     })
     readonly property var paints: [["#e8eaeb", 0.15], ["#f3f2ee", 0.05], ["#b4b9bd", 0.8], ["#6b7178", 0.7], ["#202326", 0.55],
         ["#1d3352", 0.65], ["#8e1c22", 0.6], ["#2d4b3e", 0.55], ["#c9bfa6", 0.35], ["#4a5560", 0.7], ["#5c1a26", 0.6], ["#d8dadb", 0.2]]
@@ -59,7 +88,8 @@ FocusScope {
     function focusDriving() { if (playing && visible) viewport.forceActiveFocus() }
     function keyName(key) {
         return ({[Qt.Key_W]:"w", [Qt.Key_Up]:"up", [Qt.Key_S]:"s", [Qt.Key_Down]:"down",
-                 [Qt.Key_A]:"a", [Qt.Key_Left]:"left", [Qt.Key_D]:"d", [Qt.Key_Right]:"right"})[key] || ""
+                 [Qt.Key_A]:"a", [Qt.Key_Left]:"left", [Qt.Key_D]:"d", [Qt.Key_Right]:"right",
+                 [Qt.Key_R]:"r", [Qt.Key_F]:"f"})[key] || ""
     }
     function look(id) {
         const hash = Math.imul(id + 1, 2654435761) >>> 0
@@ -72,7 +102,7 @@ FocusScope {
         const g = drive.game, k = drive.kin
         const entry = {t: Number(g.elapsed || 0), d: Number(g.distance || 0), v: Number(g.egoKmh || 0) / 3.6,
                        a: Number(g.accelMps2 || 0), lane: Number(g.egoLane === undefined ? 1 : g.egoLane),
-                       target: Number(g.targetLane === undefined ? 1 : g.targetLane), cars: {}}
+                       target: Number(g.targetLane === undefined ? 1 : g.targetLane), h: Number(g.altitude || 0), cars: {}}
         for (const car of (g.traffic || []))
             entry.cars[car.id] = {z: entry.d + Number(car.relativeZ), v: Number(car.speedKmh) / 3.6,
                                   lane: Number(car.lane), braking: Boolean(car.braking)}
@@ -83,6 +113,7 @@ FocusScope {
             k.renderT = entry.t - drive.renderDelay
             k.leadAverage = drive.renderDelay
             k.distance = entry.d; k.lane = entry.lane; k.x = (entry.lane - 1) * 3.6; k.camX = k.x
+            k.rampAt = entry.d; k.rollFrom = Math.round(entry.lane)
             for (const slot of k.slots) slot.id = -1
         } else if (entry.t > last.t + 0.001) {
             k.buffer.push(entry)
@@ -160,6 +191,7 @@ FocusScope {
             k.distance = drive.hermite(s0.d, s0.v, s1.d, s1.v, h, u)
             k.speed = s0.v + (s1.v - s0.v) * u
             k.lane = s0.lane + (s1.lane - s0.lane) * u
+            k.alt = s0.h + (s1.h - s0.h) * u
             accel = s0.a + (s1.a - s0.a) * u
         } else {
             // Buffer underrun: coast briefly on the last acknowledged step.
@@ -167,6 +199,7 @@ FocusScope {
             k.distance = s0.d + s0.v * ahead
             k.speed = s0.v
             k.lane = s0.lane + drive.clamp(s0.target - s0.lane, -2.4 * ahead, 2.4 * ahead)
+            k.alt = s0.h
         }
         k.accel += ((live ? accel : 0) - k.accel) * Math.min(1, dt * 10)
         k.blink = (k.clock % 0.7) < 0.38
@@ -185,6 +218,7 @@ FocusScope {
         k.roll = state[0]; k.rollRate = state[1]
 
         const signal = live && k.clock < k.signalUntil ? k.signalSide : 0
+        drive.updateFlight(dt)
         ego.x = k.x
         ego.eulerRotation = Qt.vector3d(0, 180 + k.yaw, 0)
         ego.bodyPitch = k.pitch
@@ -205,6 +239,65 @@ FocusScope {
         drive.updateCamera(dt)
         drive.updateOverlays()
         sounds.road(live ? k.speed : 0)
+    }
+    // Roadster pose: hanging under the ramp before a drive, the drop-and-roll
+    // start, barrel rolls through lane changes, nozzles, wing and landing puff.
+    function updateFlight(dt) {
+        const k = drive.kin
+        let alt = k.alt, flip = 0, thrust = 0, rolling = 0
+        if (!drive.flying) {
+            k.intro = -1
+        } else if (drive.choosing) {
+            alt = drive.rampCeiling - ego.height
+            flip = 180
+            k.rampAt = k.distance
+        } else if (k.intro >= 0) {
+            k.intro += dt
+            const f = drive.clamp(k.intro / drive.introTime, 0, 1)
+            const start = drive.rampCeiling - ego.height
+            alt = start * (1 - f * f) + 0.9 * Math.sin(Math.PI * f) * (1 - f)
+            flip = 180 + 540 * f * f * (3 - 2 * f)
+            thrust = 1 - 0.4 * f
+            if (f >= 1) {
+                k.intro = -1
+                k.puff = 0
+            }
+        } else {
+            // One full barrel roll per lane, hopping clear of the road when low.
+            if (Math.abs(k.lane - Math.round(k.lane)) < 0.01)
+                k.rollFrom = Math.round(k.lane)
+            const p = drive.clamp(Math.abs(k.lane - k.rollFrom), 0, 1)
+            if (p > 0.001) {
+                flip = (k.lane > k.rollFrom ? -360 : 360) * p * p * (3 - 2 * p)
+                rolling = Math.sin(Math.PI * p)
+                alt += rolling * Math.max(0, 1.6 - k.alt)
+            }
+            const climb = drive.clamp(Math.abs(k.alt - k.lastAlt) / Math.max(dt, 0.001) / 7, 0, 1)
+            thrust = Math.max(rolling, k.alt > 0.05 ? 0.5 + 0.5 * climb : 0)
+            if (k.lastAlt > 0.4 && k.alt <= 0.05)
+                k.puff = 0
+        }
+        k.lastAlt = k.alt
+        k.renderAlt = alt
+        k.wing += ((drive.flying && (alt > 0.3 || k.accel < -4) ? 1 : 0) - k.wing) * Math.min(1, dt * 4)
+        ego.altitude = alt
+        ego.flip = flip
+        ego.thrust = thrust
+        ego.boost = drive.flying && drive.playing ? drive.clamp((k.accel - 1.2) / 1.6, 0, 1) : 0
+        ego.wing = k.wing
+        ramp.z = k.distance - k.rampAt
+        if (k.puff >= 0) {
+            k.puff += dt
+            if (k.puff > 0.9)
+                k.puff = -1
+        }
+        puff.visible = k.puff >= 0
+        if (k.puff >= 0) {
+            const grow = 1.6 + 3.4 * Math.sqrt(k.puff / 0.9)
+            puff.x = k.x
+            puff.scale = Qt.vector3d(grow * 1.3 / 100, grow * 2.4 / 100, 1)
+            puffMaterial.opacity = 0.7 * (1 - k.puff / 0.9)
+        }
     }
     function updateTraffic(dt, span, live) {
         const k = drive.kin
@@ -273,9 +366,11 @@ FocusScope {
         const nudge = drive.playing ? 0.025 * k.shake : 0
         const sx = Math.sin(t * 7.3) * nudge
         const sy = Math.sin(t * 9.1 + 0.7) * nudge
+        const lift = drive.flying && !drive.choosing && k.intro < 0 ? k.renderAlt : 0
+        const look = drive.flying && k.intro >= 0 ? k.renderAlt * 0.75 : lift * 0.9
         if (drive.hoodCamera) {
             const yaw = k.yaw * Math.PI / 180
-            driveCamera.position = Qt.vector3d(k.x - Math.sin(yaw) * 0.8 + sx * 0.4, 1.3 + sy * 0.5 - k.pitch * 0.006, -Math.cos(yaw) * 0.8)
+            driveCamera.position = Qt.vector3d(k.x - Math.sin(yaw) * 0.8 + sx * 0.4, 1.3 + lift + sy * 0.5 - k.pitch * 0.006, -Math.cos(yaw) * 0.8)
             driveCamera.eulerRotation = Qt.vector3d(-3 - k.pitch * 0.35, k.yaw, -k.roll * 0.3)
             driveCamera.fieldOfView = 60 + fast * 6
             return
@@ -288,10 +383,12 @@ FocusScope {
                 return
             k.orbit += k.idle * 7
             k.idle = 0
-            const a = (k.orbit + 205) * Math.PI / 180
-            const radius = 8.4
-            driveCamera.position = Qt.vector3d(k.x + Math.sin(a) * radius, 2.9, Math.cos(a) * radius)
-            const dx = k.x - driveCamera.position.x, dz = -driveCamera.position.z, dy = 1.5 - 2.9
+            // The Roadster hangs at the mouth of its ramp: sway in front of it
+            // and look up, since the tube walls hide it from the sides.
+            const a = (drive.flying ? 180 + 38 * Math.sin(k.orbit * 0.035) : k.orbit + 205) * Math.PI / 180
+            const radius = drive.flying ? 12 : 8.4, height = drive.flying ? 4.2 : 2.9, aim = drive.flying ? 8 : 1.5
+            driveCamera.position = Qt.vector3d(k.x + Math.sin(a) * radius, height, Math.cos(a) * radius)
+            const dx = k.x - driveCamera.position.x, dz = -driveCamera.position.z, dy = aim - height
             driveCamera.eulerRotation = Qt.vector3d(Math.atan2(dy, Math.hypot(dx, dz)) * 57.2958, Math.atan2(-dx, -dz) * 57.2958, 0)
             driveCamera.fieldOfView = 52
             k.camX = k.x; k.camBack = 9.2
@@ -301,9 +398,9 @@ FocusScope {
         k.camX += (k.x - k.camX) * Math.min(1, dt * 3.4)
         const back = 9.2 + fast * 1.4 + drive.clamp(k.accel * 0.11, -0.9, 0.35)
         k.camBack += (back - k.camBack) * Math.min(1, dt * 2.5)
-        const height = 3.25 + fast * 0.35
+        const height = 3.25 + fast * 0.35 + lift * 0.85
         const px = k.camX + sx, py = height + sy, pz = k.camBack
-        const lookX = k.x * 0.7 + k.camX * 0.3, lookY = 0.3, lookZ = -12
+        const lookX = k.x * 0.7 + k.camX * 0.3, lookY = 0.3 + look, lookZ = -12
         driveCamera.position = Qt.vector3d(px, py, pz)
         driveCamera.eulerRotation = Qt.vector3d(Math.atan2(lookY - py, Math.hypot(lookX - px, lookZ - pz)) * 57.2958,
                                            Math.atan2(-(lookX - px), -(lookZ - pz)) * 57.2958,
@@ -312,7 +409,7 @@ FocusScope {
     }
     function updateOverlays() {
         const k = drive.kin
-        const show = drive.overlays && drive.playing && drive.mode !== "off"
+        const show = drive.overlays && drive.playing && drive.mode !== "off" && !(drive.flying && k.renderAlt > 1)
         const leadCar = k.lead >= 0 ? traffic.objectAt(k.lead) : null
         const leadSlot = k.lead >= 0 ? k.slots[k.lead] : null
         const gap = leadSlot ? Math.max(0, leadSlot.z - k.distance - 4.6) : 1e9
@@ -352,6 +449,8 @@ FocusScope {
     onGameChanged: { drive.sample(); if (!playing) drive.settle() }
     onPlayingChanged: {
         drive.settle()
+        if (playing && drive.flying && Number(game.elapsed || 0) < 0.3)
+            drive.kin.intro = 0
         if (playing) Qt.callLater(focusDriving)
         else if (studio) studio.releaseGameKeys()
     }
@@ -368,6 +467,7 @@ FocusScope {
             slots.push({id: -1})
         drive.kin.slots = slots
         drive.sample()
+        if (studio) studio.setFlightVehicle(drive.flying)
     }
 
     component Copy: Text { color: "#e5edf3"; font.pixelSize: 12; elide: Text.ElideRight }
@@ -419,23 +519,17 @@ FocusScope {
         Accessible.checked: tile.chosen
         Rectangle {
             id: swatch
-            anchors.left: parent.left; anchors.leftMargin: 13; anchors.verticalCenter: parent.verticalCenter
-            width: 16; height: 16; radius: 8
+            anchors.left: parent.left; anchors.leftMargin: 11; anchors.verticalCenter: parent.verticalCenter
+            width: 14; height: 14; radius: 7
             color: tile.car.paint; border.width: 1; border.color: "#55ffffff"
         }
         Column {
-            anchors.left: swatch.right; anchors.leftMargin: 11
-            anchors.right: tick.left; anchors.rightMargin: 6
+            anchors.left: swatch.right; anchors.leftMargin: 10
+            anchors.right: parent.right; anchors.rightMargin: 10
             anchors.verticalCenter: parent.verticalCenter
             spacing: 3
             Copy { width: parent.width; text: tile.car.name; font.pixelSize: 14; font.weight: Font.DemiBold; color: tile.chosen ? "#f1f7f9" : "#c6d5de" }
             Copy { width: parent.width; text: tile.car.note; font.pixelSize: 11; color: tile.chosen ? "#8fc9bb" : "#7891a1" }
-        }
-        Text {
-            id: tick
-            anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter
-            text: "✓"; color: "#63dec2"; font.pixelSize: 15; font.weight: Font.Bold
-            opacity: tile.chosen ? 1 : 0
         }
         MouseArea {
             id: tileArea
@@ -458,6 +552,12 @@ FocusScope {
             Chip { objectName: "watchAcc"; caption: "ACC " + (drive.game.accEnabled ? "AÇIK" : "KAPALI"); ink: drive.game.accEnabled ? "#63dec2" : "#b6c9d5"; lit: Boolean(drive.game.accEnabled) }
             Chip { objectName: "watchTarget"; caption: "Hedef " + drive.number(drive.game.targetKmh, 0) + " km/sa" }
             Chip { objectName: "watchHeadway"; caption: "Takip " + drive.number(Number(drive.game.headwayMs) / 1000, 1) + " s" }
+            Chip {
+                objectName: "flightLayer"
+                visible: drive.flying
+                caption: "UÇUŞ " + (["YOL", "4 m", "9 m"][Number(drive.game.layer || 0)] || "YOL")
+                ink: "#86c8ff"; lit: Number(drive.game.layer || 0) > 0
+            }
             Item { Layout.fillWidth: true }
             Copy { text: "AYARLAR SAATTEN"; color: "#748f9e"; font.pixelSize: 10; font.letterSpacing: 1 }
         }
@@ -559,6 +659,54 @@ FocusScope {
                     id: traffic
                     model: 12
                     delegate: Vehicle3D { visible: false; lamps: 0.4 }
+                }
+                Node {
+                    // Launch half-pipe over our carriageway, left behind at the start.
+                    id: ramp
+                    objectName: "launchRamp"
+                    visible: drive.flying && z < 90
+                    PrincipledMaterial { id: rampMaterial; baseColor: "#b7bec5"; metalness: 0.45; roughness: 0.45 }
+                    PrincipledMaterial { id: rampMarkMaterial; baseColor: "#202326"; roughness: 0.9 }
+                    Repeater3D {
+                        model: drive.rampSegments
+                        delegate: Model {
+                            required property var modelData
+                            source: "#Cube"
+                            // The car waits at the mouth; the tube runs 13 m back behind it.
+                            position: Qt.vector3d(modelData[0], modelData[1], 6)
+                            eulerRotation.z: modelData[2]
+                            scale: Qt.vector3d(modelData[3] / 100, 0.0022, 0.14)
+                            materials: rampMaterial
+                        }
+                    }
+                    Repeater3D {
+                        // Tyre marks across the crown where the car drove upside down.
+                        model: [-0.86, 0.86]
+                        delegate: Model {
+                            required property real modelData
+                            source: "#Cube"
+                            position: Qt.vector3d(modelData, drive.rampCeiling - 0.006, 6)
+                            scale: Qt.vector3d(0.0028, 0.0001, 0.138)
+                            castsShadows: false
+                            materials: rampMarkMaterial
+                        }
+                    }
+                }
+                Model {
+                    // Nitrogen puff spreading over the road where the Roadster touches down.
+                    id: puff
+                    source: "#Rectangle"
+                    visible: false
+                    y: 0.06
+                    eulerRotation.x: -90
+                    castsShadows: false; receivesShadows: false
+                    materials: PrincipledMaterial {
+                        id: puffMaterial
+                        baseColor: "#f2f6fa"; lighting: PrincipledMaterial.NoLighting
+                        opacityMap: Texture { source: "assets/fx/contact_shadow.png" }
+                        opacityChannel: Material.A
+                        alphaMode: PrincipledMaterial.Blend; opacity: 0
+                    }
                 }
                 Node {
                     id: corridor
@@ -726,6 +874,21 @@ FocusScope {
                 }
             }
 
+            // A refused landing: the lane below is taken.
+            Rectangle {
+                objectName: "landingBlocked"
+                visible: drive.playing && Boolean(drive.game.landingBlocked) && !(drive.emergency || drive.warning)
+                anchors.top: parent.top; anchors.horizontalCenter: parent.horizontalCenter; anchors.topMargin: 66
+                width: landingRow.implicitWidth + 40; height: 44; radius: 12
+                color: "#e63a2a08"; border.width: 2; border.color: "#ffc35c"
+                scale: viewport.ui
+                Row {
+                    id: landingRow; anchors.centerIn: parent; spacing: 10
+                    Copy { text: "İNİŞ ŞERİDİ DOLU"; color: "#ffc35c"; font.weight: Font.Bold; font.pixelSize: 16; font.letterSpacing: 1; anchors.verticalCenter: parent.verticalCenter }
+                    Copy { text: "· şerit değiştir veya bekle"; color: "#d9c39a"; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
+                }
+            }
+
             DriveCluster {
                 id: cluster
                 anchors.left: parent.left; anchors.bottom: parent.bottom; anchors.margins: 14
@@ -757,7 +920,7 @@ FocusScope {
                 // Level with the status pill, clear of the showroom car below.
                 anchors.top: parent.top; anchors.topMargin: viewport.compact ? 64 * viewport.ui : 16
                 transformOrigin: Item.Top
-                width: Math.min(470, parent.width - 64); height: card.implicitHeight + 46
+                width: Math.min(560, parent.width - 64); height: card.implicitHeight + 46
                 radius: 16; color: "#e60b1720"; border.color: "#3a5866"
                 scale: viewport.ui
                 Column {
@@ -780,7 +943,7 @@ FocusScope {
                                 delegate: CarTile {
                                     required property var modelData
                                     car: modelData
-                                    width: (parent.width - 10) / 2
+                                    width: (parent.width - 20) / 3
                                 }
                             }
                         }
@@ -812,13 +975,16 @@ FocusScope {
                     Text {
                         objectName: "watchStartHint"
                         width: parent.width; wrapMode: Text.WordWrap; color: "#c4d6e0"; font.pixelSize: 13; lineHeight: 1.4
-                        text: !drive.available ? "Üstteki Bağlan düğmesiyle ADASLab yüklü saati bağla. Ardından saatte BASLAT’a dokun." : "Modu ve ACC ayarını saatten seç. Saat ekranındaki BASLAT’a dokun; oyun burada başlayacak."
+                        text: !drive.available ? "Üstteki Bağlan düğmesiyle ADASLab yüklü saati bağla. Ardından saatte BAŞLAT’a dokun."
+                              : drive.flying && drive.choosing ? "Roadster rampanın altında ters bekliyor. Saatte BAŞLAT’a dokun; rampadan takla atarak yola iner."
+                              : "Modu ve ACC ayarını saatten seç. Saat ekranındaki BAŞLAT’a dokun; oyun burada başlayacak."
                     }
                     Flow {
                         width: parent.width; spacing: 14
                         Keycap { keys: "W ↑"; label: "Gaz" }
                         Keycap { keys: "S ↓"; label: "Fren" }
-                        Keycap { keys: "A D"; label: "Şerit" }
+                        Keycap { keys: "A D"; label: drive.flying ? "Taklayla şerit" : "Şerit" }
+                        Keycap { keys: "R F"; label: "Yüksel / alçal"; visible: drive.flying }
                         Keycap { keys: "C"; label: drive.hoodCamera ? "Kaput kamerası" : "Takip kamerası" }
                     }
                 }
@@ -831,6 +997,7 @@ FocusScope {
             Keycap { keys: "C"; label: "Kamera"; active: drive.hoodCamera }
             Keycap { keys: "V"; label: "ADAS çizimi"; active: drive.overlays }
             Keycap { keys: "M"; label: drive.soundOn ? "Ses açık" : "Ses kapalı"; active: drive.soundOn }
+            Keycap { keys: "R F"; label: "Uçuş katmanı"; visible: drive.flying; active: Number(drive.game.layer || 0) > 0 }
             Item { Layout.fillWidth: true }
             Copy { text: "Başlat / Duraklat ve ADAS ayarları: saat"; color: "#6d8b9d"; font.pixelSize: 11 }
         }

@@ -16,7 +16,46 @@ class GameTests(unittest.TestCase):
         self.assertEqual(inputs.sample()['lane'], -1)
         self.assertEqual(inputs.sample()['lane'], 0)
         inputs.release()
-        self.assertEqual(inputs.sample(), dict(gas=False, brake=False, lane=0))
+        self.assertEqual(inputs.sample(), dict(gas=False, brake=False, lane=0, layer=0))
+
+    def test_flight_keys_queue_layers_and_repeat_does_not_climb(self):
+        inputs = DriverInput()
+        inputs.key('r', True); inputs.key('r', True, True); inputs.key('r', False); inputs.key('f', True)
+        self.assertEqual([inputs.sample()['layer'] for _ in range(3)], [1, -1, 0])
+
+    def fly(self, world, steps, control=None):
+        for _ in range(steps):
+            world.advance(control or dict(a=0, mode='MONITOR', warn=False), dict(gas=False, brake=False))
+
+    def test_only_flying_cars_change_layers(self):
+        world = TrafficWorld(GameConfig())
+        world.fly(1); self.fly(world, 20)
+        self.assertEqual((world.layer, world.altitude), (0, 0.))
+
+    def test_airborne_car_has_no_adas_target_and_passes_over_traffic(self):
+        world = TrafficWorld(GameConfig(flight=True))
+        world.cars = [TrafficCar(1, 1., 12., 0.)]
+        world.fly(1); self.fly(world, 12)
+        self.assertEqual((world.layer, world.altitude), (1, 4.))
+        body = world.command(dict(gas=False, brake=False)).rsplit(':', 1)[0].split(':')
+        self.assertEqual((int(body[4]), int(body[5]) & 1), (100000, 0))
+        self.fly(world, 60)
+        self.assertGreater(world.distance, 12 + world.car_length)
+        self.assertFalse(world.collision)
+        self.assertEqual(world.snapshot({})['altitude'], 4.)
+
+    def test_landing_waits_for_a_clear_lane(self):
+        world = TrafficWorld(GameConfig(flight=True))
+        world.cars = []
+        world.fly(1); world.fly(1); self.fly(world, 30)
+        self.assertEqual((world.layer, world.altitude), (2, 9.))
+        world.cars = [TrafficCar(1, 1., world.distance + 3, world.ego)]
+        world.fly(-1); world.fly(-1)
+        self.assertEqual(world.layer, 1)
+        self.assertTrue(world.snapshot({})['landingBlocked'])
+        world.cars = []
+        world.fly(-1); self.fly(world, 30)
+        self.assertEqual((world.layer, world.altitude), (0, 0.))
 
     def test_target_selection_excludes_adjacent_lane_and_includes_entered_lane(self):
         world = TrafficWorld(GameConfig())

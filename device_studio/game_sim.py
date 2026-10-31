@@ -15,6 +15,10 @@ from .protocol import ProtocolError
 
 MODES = {'active': 0, 'warn': 1, 'off': 2}
 MODE_NAMES = {0: 'active', 1: 'warn', 2: 'off'}
+# Flight layers of flying cars in metres: the road, under the gantries, above them.
+LAYERS = (0., 4., 9.)
+# Above this the car clears roofs: no ground collision and no ADAS target ahead.
+CLEARANCE = 1.6
 
 
 @dataclass(frozen=True)
@@ -25,6 +29,8 @@ class GameConfig:
     headway_ms: int = 1800
     seed: int = 42
     duration: int = 120
+    # A flying car: R/F change flight layers and lane changes are rolls.
+    flight: bool = False
 
     def __post_init__(self):
         if self.mode not in MODES or not 0 <= self.target_kmh <= 216 or not 800 <= self.headway_ms <= 4000:
@@ -37,13 +43,14 @@ class GameConfig:
 
 
 class DriverInput:
-    """Physical aliases retain independent ownership; auto-repeat never steers."""
-    allowed = {'w', 'up', 's', 'down', 'a', 'left', 'd', 'right'}
+    """Physical aliases retain independent ownership; auto-repeat never steers or climbs."""
+    allowed = {'w', 'up', 's', 'down', 'a', 'left', 'd', 'right', 'r', 'f'}
 
     def __init__(self):
         self._lock = threading.Lock()
         self._held = set()
         self._lanes = deque(maxlen=4)
+        self._layers = deque(maxlen=4)
 
     def key(self, key, pressed, repeat=False):
         if key not in self.allowed or repeat:
@@ -52,6 +59,8 @@ class DriverInput:
             if pressed:
                 if key not in self._held and key in ('a', 'left', 'd', 'right'):
                     self._lanes.append(-1 if key in ('a', 'left') else 1)
+                if key not in self._held and key in ('r', 'f'):
+                    self._layers.append(1 if key == 'r' else -1)
                 self._held.add(key)
             else:
                 self._held.discard(key)
@@ -59,12 +68,14 @@ class DriverInput:
     def sample(self):
         with self._lock:
             lane = self._lanes.popleft() if self._lanes else 0
-            return dict(gas=bool(self._held & {'w', 'up'}), brake=bool(self._held & {'s', 'down'}), lane=lane)
+            layer = self._layers.popleft() if self._layers else 0
+            return dict(gas=bool(self._held & {'w', 'up'}), brake=bool(self._held & {'s', 'down'}), lane=lane, layer=layer)
 
     def release(self):
         with self._lock:
             self._held.clear()
             self._lanes.clear()
+            self._layers.clear()
 
 
 @dataclass
@@ -106,6 +117,9 @@ class TrafficWorld:
         self._warning_at = None
         self.reactions = []
         self.hard_brakes = 0
+        self.layer = 0
+        self.altitude = 0.
+        self.landing_blocked = 0
 
     @property
     def seconds(self):
@@ -119,10 +133,31 @@ class TrafficWorld:
     def score(self):
         return max(0, round(self.distance * 2) - len(self.near_misses) * 50 - int(self.collision) * 500 - self.hard_brakes * 5)
 
+    @property
+    def airborne(self):
+        return self.altitude >= CLEARANCE
+
     def steer(self, delta):
         self.target_lane = max(0, min(2, self.target_lane + delta))
 
+    def fly(self, delta):
+        """R climbs a layer; F descends, landing only where the road below is clear."""
+        if not delta or not self.config.flight:
+            return
+        layer = max(0, min(len(LAYERS) - 1, self.layer + delta))
+        if layer == 0 and self.layer > 0 and self.landing_occupied():
+            self.landing_blocked = 1500
+            return
+        self.layer = layer
+
+    def landing_occupied(self):
+        lanes = (self.lane, float(self.target_lane))
+        return any(abs(car.z - self.distance) < self.car_length + 6 and min(abs(car.lane - lane) for lane in lanes) < .56
+                   for car in self.cars)
+
     def front(self):
+        if self.airborne:
+            return None, 1000.
         moving = abs(self.lane - self.target_lane) > .01
         candidates = [car for car in self.cars if car.z >= self.distance and
                       (abs(car.lane - self.lane) < .56 or moving and abs(car.lane - self.target_lane) < .56)]
@@ -168,8 +203,13 @@ class TrafficWorld:
         old_distance, old_lane, old_speed = self.distance, self.lane, self.ego
         self.ego = max(0., min(200 / 3.6, self.ego + applied * self.dt))
         self.distance += (old_speed + self.ego) * .5 * self.dt
-        step = 2.4 * self.dt
+        # A flying car's lane change is a slower barrel roll.
+        step = (1.6 if self.config.flight else 2.4) * self.dt
         self.lane += max(-step, min(step, self.target_lane - self.lane))
+        climb = 7. * self.dt
+        self.altitude += max(-climb, min(climb, LAYERS[self.layer] - self.altitude))
+        self.landing_blocked = max(0, self.landing_blocked - 50)
+        grounded = not self.airborne
         if self.tick >= 10000 and not self.cutin_started:
             self.cutin_started = True
             # The event is scheduled in road time, not spawned on top of player.
@@ -191,10 +231,10 @@ class TrafficWorld:
                 ego_lane = old_lane + (self.lane - old_lane) * fraction
                 z = old_z + (car.z - old_z) * fraction
                 lane = previous_lane + (car.lane - previous_lane) * fraction
-                if abs(z - ego_z) < self.car_length and abs(lane - ego_lane) < .52:
+                if grounded and abs(z - ego_z) < self.car_length and abs(lane - ego_lane) < .52:
                     self.collision = True
             gap = car.z - self.distance - self.car_length
-            if not self.collision and 0 < gap < 8 and abs(car.lane - self.lane) < .56:
+            if grounded and not self.collision and 0 < gap < 8 and abs(car.lane - self.lane) < .56:
                 self.near_misses.add(car.identity)
         self.tick += 50
         self.cars = [car for car in self.cars if car.z - self.distance > -45]
@@ -215,6 +255,8 @@ class TrafficWorld:
                     aeb=control.get('mode') == 'AEB' and self.config.mode == 'active',
                     traffic=[dict(id=c.identity, lane=c.lane, relativeZ=c.z - self.distance,
                                   speedKmh=c.speed * 3.6, braking=c.braking) for c in sorted(self.cars, key=lambda c: abs(c.z-self.distance))[:12]],
+                    flight=self.config.flight, layer=self.layer, altitude=self.altitude,
+                    landingBlocked=self.landing_blocked > 0,
                     score=self.score, collisions=int(self.collision), nearMisses=len(self.near_misses),
                     warnings=self.warnings, interventions=self.interventions,
                     reactionMs=round(sum(self.reactions) / len(self.reactions)) if self.reactions else -1.)
@@ -247,6 +289,7 @@ class GameRunner:
                 started = time.monotonic()
                 pedals = self.inputs.sample()
                 self.world.steer(pedals['lane'])
+                self.world.fly(pedals['layer'])
                 response = self.device.runtime(self.world.command(pedals), timeout=.6)
                 self.last_response = response
                 control = response.get('state', {})
