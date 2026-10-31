@@ -1,4 +1,5 @@
 pragma ComponentBehavior: Bound
+import QtCore
 import QtQuick
 import QtQuick.Layouts
 import QtQuick3D
@@ -25,6 +26,14 @@ FocusScope {
     // Per-frame updates run while driving, briefly after any change, and for
     // the showroom orbit only while Studio is the active application.
     readonly property bool showroom: !playing && game.status !== "paused" && !hoodCamera
+    // The ego car is picked between drives and remembered across sessions.
+    readonly property bool choosing: !playing && game.status !== "paused"
+    readonly property var cars: [
+        {id: "sahin", name: "Tofaş Şahin", note: "1980'ler · klasik sedan", variant: 5, paint: "#b5221f", metallic: 0.15},
+        {id: "model3", name: "Tesla Model 3", note: "Elektrikli · cam tavan", variant: 6, paint: "#f2f4f5", metallic: 0.08}]
+    readonly property var egoCar: cars.find(car => car.id === garage.car) || cars[0]
+    onEgoCarChanged: drive.settle()
+    Settings { id: garage; category: "drive"; property string car: "sahin" }
     property bool settling: true
     function settle() { drive.settling = true; settleTimer.restart() }
     implicitHeight: 625
@@ -55,7 +64,7 @@ FocusScope {
     function look(id) {
         const hash = Math.imul(id + 1, 2654435761) >>> 0
         const pick = hash % 100
-        const variant = pick < 34 ? 0 : pick < 56 ? 1 : pick < 66 ? 3 : pick < 75 ? 2 : pick < 82 ? 4 : 5
+        const variant = pick < 34 ? 0 : pick < 56 ? 1 : pick < 66 ? 3 : pick < 75 ? 2 : pick < 82 ? 4 : pick < 92 ? 5 : 6
         const paint = variant === 3 ? ["#f2c12e", 0.25] : drive.paints[(hash >>> 8) % drive.paints.length]
         return {variant: variant, paint: paint[0], metallic: paint[1]}
     }
@@ -282,7 +291,7 @@ FocusScope {
             const a = (k.orbit + 205) * Math.PI / 180
             const radius = 8.4
             driveCamera.position = Qt.vector3d(k.x + Math.sin(a) * radius, 2.9, Math.cos(a) * radius)
-            const dx = k.x - driveCamera.position.x, dz = -driveCamera.position.z, dy = 1.25 - 2.9
+            const dx = k.x - driveCamera.position.x, dz = -driveCamera.position.z, dy = 1.5 - 2.9
             driveCamera.eulerRotation = Qt.vector3d(Math.atan2(dy, Math.hypot(dx, dz)) * 57.2958, Math.atan2(-dx, -dz) * 57.2958, 0)
             driveCamera.fieldOfView = 52
             k.camX = k.x; k.camBack = 9.2
@@ -394,6 +403,48 @@ FocusScope {
         }
         Copy { text: keycap.label; color: "#8aa5b6"; font.pixelSize: 11; anchors.verticalCenter: parent.verticalCenter }
     }
+    component CarTile: Rectangle {
+        id: tile
+        required property var car
+        readonly property bool chosen: drive.egoCar.id === tile.car.id
+        objectName: "car_" + tile.car.id
+        implicitHeight: 56
+        radius: 10
+        color: tile.chosen ? "#183634" : tileArea.containsMouse ? "#18303d" : "#112330"
+        border.width: tile.chosen ? 2 : 1
+        border.color: tile.chosen ? "#63dec2" : tileArea.containsMouse ? "#3c5c6c" : "#284250"
+        Behavior on color { ColorAnimation { duration: 120 } }
+        Accessible.role: Accessible.RadioButton
+        Accessible.name: tile.car.name
+        Accessible.checked: tile.chosen
+        Rectangle {
+            id: swatch
+            anchors.left: parent.left; anchors.leftMargin: 13; anchors.verticalCenter: parent.verticalCenter
+            width: 16; height: 16; radius: 8
+            color: tile.car.paint; border.width: 1; border.color: "#55ffffff"
+        }
+        Column {
+            anchors.left: swatch.right; anchors.leftMargin: 11
+            anchors.right: tick.left; anchors.rightMargin: 6
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 3
+            Copy { width: parent.width; text: tile.car.name; font.pixelSize: 14; font.weight: Font.DemiBold; color: tile.chosen ? "#f1f7f9" : "#c6d5de" }
+            Copy { width: parent.width; text: tile.car.note; font.pixelSize: 11; color: tile.chosen ? "#8fc9bb" : "#7891a1" }
+        }
+        Text {
+            id: tick
+            anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter
+            text: "✓"; color: "#63dec2"; font.pixelSize: 15; font.weight: Font.Bold
+            opacity: tile.chosen ? 1 : 0
+        }
+        MouseArea {
+            id: tileArea
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: garage.car = tile.car.id
+        }
+    }
 
     ColumnLayout {
         anchors.fill: parent; spacing: 12
@@ -501,7 +552,7 @@ FocusScope {
                 Vehicle3D {
                     id: ego
                     objectName: "egoVehicle3D"
-                    variant: 5; paint: "#b5221f"; metallic: 0.15
+                    variant: drive.egoCar.variant; paint: drive.egoCar.paint; metallic: drive.egoCar.metallic
                     lamps: 0.45
                 }
                 Repeater3D {
@@ -703,7 +754,8 @@ FocusScope {
             Rectangle {
                 visible: !drive.playing
                 anchors.horizontalCenter: parent.horizontalCenter
-                anchors.top: parent.top; anchors.topMargin: 64 * viewport.ui
+                // Level with the status pill, clear of the showroom car below.
+                anchors.top: parent.top; anchors.topMargin: viewport.compact ? 64 * viewport.ui : 16
                 transformOrigin: Item.Top
                 width: Math.min(470, parent.width - 64); height: card.implicitHeight + 46
                 radius: 16; color: "#e60b1720"; border.color: "#3a5866"
@@ -715,6 +767,23 @@ FocusScope {
                         text: !drive.available ? "3B sürüş hazır" : drive.game.status === "collision" ? "Sürüş tamamlandı · Çarpışma" : drive.game.status === "finished" ? "Sürüş tamamlandı" : drive.game.status === "paused" ? "Sürüş duraklatıldı" : "Direksiyon sende"
                         font.pixelSize: 24; font.weight: Font.DemiBold
                         color: drive.game.status === "collision" ? "#ff8a95" : "#eef4f7"
+                    }
+                    Column {
+                        objectName: "carPicker"
+                        visible: drive.choosing
+                        width: parent.width; spacing: 8
+                        Copy { text: "ARACINI SEÇ"; color: "#7590a1"; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.2 }
+                        Row {
+                            width: parent.width; spacing: 10
+                            Repeater {
+                                model: drive.cars
+                                delegate: CarTile {
+                                    required property var modelData
+                                    car: modelData
+                                    width: (parent.width - 10) / 2
+                                }
+                            }
+                        }
                     }
                     Grid {
                         objectName: "driveResults"
