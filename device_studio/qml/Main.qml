@@ -117,43 +117,26 @@ ApplicationWindow {
             ColumnLayout {
                 anchors.fill: parent; anchors.margins: 20
                 spacing: 8
-                // The brand is also the way back to the driving view, the app's home.
-                ItemDelegate {
-                    id: home
-                    objectName: "nav_game"
-                    Layout.fillWidth: true; Layout.leftMargin: -8; Layout.rightMargin: -8
-                    Layout.topMargin: 2; Layout.bottomMargin: 25
-                    implicitHeight: 54
-                    leftPadding: 8; rightPadding: 8
-                    hoverEnabled: true
-                    Accessible.name: "ADASLab sürüş ekranı"
-                    ToolTip.visible: hovered && window.s.page !== "game"; ToolTip.text: "Sürüş ekranına dön"; ToolTip.delay: 400
-                    onClicked: window.studio.navigate("game")
-                    background: Rectangle {
-                        radius: 11; color: window.s.page === "game" ? "#15283a" : home.hovered ? "#132231" : "transparent"
-                        border.width: home.activeFocus ? 1 : 0; border.color: "#63dec2"
+                RowLayout {
+                    Layout.topMargin: 10; Layout.bottomMargin: 33; spacing: 11
+                    Rectangle {
+                        implicitWidth: 34; implicitHeight: 34; radius: 9
+                        gradient: Gradient {
+                            GradientStop { position: 0; color: "#7ef0d5" }
+                            GradientStop { position: 1; color: "#3fbfa6" }
+                        }
+                        Text { anchors.centerIn: parent; text: "DS"; color: "#0e2620"; font.family: window.font.family; font.pixelSize: 12; font.weight: Font.Bold }
                     }
-                    contentItem: RowLayout {
-                        spacing: 11
-                        Rectangle {
-                            implicitWidth: 34; implicitHeight: 34; radius: 9
-                            gradient: Gradient {
-                                GradientStop { position: 0; color: "#7ef0d5" }
-                                GradientStop { position: 1; color: "#3fbfa6" }
-                            }
-                            Text { anchors.centerIn: parent; text: "AL"; color: "#0e2620"; font.family: window.font.family; font.pixelSize: 12; font.weight: Font.Bold }
-                        }
-                        Column {
-                            Layout.fillWidth: true
-                            spacing: 2
-                            Text { text: "ADASLab"; color: "#e5edf3"; font.family: window.font.family; font.pixelSize: 15; font.weight: Font.DemiBold }
-                            Text { text: "STM32 · ADAS"; color: "#698293"; font.family: window.font.family; font.pixelSize: 11; font.letterSpacing: 1.2 }
-                        }
+                    Column {
+                        spacing: 2
+                        Text { text: "Device Studio"; color: "#e5edf3"; font.family: window.font.family; font.pixelSize: 14; font.weight: Font.DemiBold }
+                        Text { text: "STM32 ARAÇLARI"; color: "#698293"; font.family: window.font.family; font.pixelSize: 11; font.letterSpacing: 1.2 }
                     }
                 }
                 Text { text: "ÇALIŞMA ALANI"; color: "#647d8f"; font.family: window.font.family; font.pixelSize: 11; font.letterSpacing: 1.5; Layout.bottomMargin: 8 }
                 Repeater {
                     model: [
+                        {page:"game",title:"ADASLab",subtitle:"Sürüş · saatten başlat",symbol:"A"},
                         {page:"firmware",title:"Firmware",subtitle:"Yükleme ve kurtarma",symbol:"F"},
                         {page:"duello",title:"Düello",subtitle:"Karakter kontrolü",symbol:"D"},
                         {page:"console",title:"Komut konsolu",subtitle:"Cihazla iletişim",symbol:">"}
