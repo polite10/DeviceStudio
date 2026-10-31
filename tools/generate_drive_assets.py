@@ -380,6 +380,43 @@ def build_contact_shadow():
     print(f'{path.relative_to(ROOT)}  {path.stat().st_size // 1024} KiB')
 
 
+def build_jet_sprites():
+    """Billowing puff and lifetime colour ramp for the compressed-air jet particles.
+
+    Cold air leaves the nozzles nearly invisible; what shows is the moisture it
+    condenses, a soft white billow that fades within a fraction of a second.
+    """
+    size = 128
+    rng = np.random.default_rng(29)
+    y, x = np.mgrid[0:size, 0:size].astype(np.float32)
+    r = np.hypot(x + 0.5 - size / 2, y + 0.5 - size / 2) / (size / 2)
+    billow = periodic_fbm(size, 4, 5, rng, gain=0.55)
+    billow = (billow - billow.min()) / (billow.max() - billow.min())
+    edge = np.clip(1 - r, 0, 1) ** 1.6 * smoothstep(1.0, 0.55, r + (billow - 0.5) * 0.35)
+    alpha = np.clip(edge * (0.55 + 0.6 * billow), 0, 1)
+    shade = 0.84 + 0.16 * billow
+    image = np.zeros((size, size, 4), np.uint8)
+    image[..., 0] = (shade * 247).astype(np.uint8)
+    image[..., 1] = (shade * 250).astype(np.uint8)
+    image[..., 2] = (shade * 253).astype(np.uint8)
+    image[..., 3] = (alpha * 255).astype(np.uint8)
+    path = ASSETS / 'fx/jet_puff.png'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(image, 'RGBA').save(path, optimize=True)
+    print(f'{path.relative_to(ROOT)}  {path.stat().st_size // 1024} KiB')
+    # Over a particle's life: a quick bloom, then thinning to clear air.
+    t = (np.arange(64, dtype=np.float32) + 0.5) / 64
+    life = smoothstep(0.0, 0.08, t) * (1 - t) ** 1.4
+    ramp = np.zeros((1, 64, 4), np.uint8)
+    ramp[..., 0] = (236 + 14 * t).astype(np.uint8)
+    ramp[..., 1] = (242 + 10 * t).astype(np.uint8)
+    ramp[..., 2] = 252
+    ramp[..., 3] = (life / life.max() * 255).astype(np.uint8)
+    path = ASSETS / 'fx/jet_life.png'
+    Image.fromarray(ramp, 'RGBA').save(path, optimize=True)
+    print(f'{path.relative_to(ROOT)}  {path.stat().st_size} B')
+
+
 # Sounds ---------------------------------------------------------------------
 
 def write_wav(name, samples, rate):
@@ -437,7 +474,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--source', type=Path, help='folder with the downloaded Poly Haven originals')
     parser.add_argument('--sky-size', type=int, default=2048)
-    parser.add_argument('--only', choices=('sky', 'surfaces', 'sounds'))
+    parser.add_argument('--only', choices=('sky', 'surfaces', 'fx', 'sounds'))
     args = parser.parse_args()
     if args.only in (None, 'sky', 'surfaces') and not args.source:
         parser.error('--source is required for the sky and surfaces')
@@ -448,7 +485,9 @@ def main():
         build_terrain_macro()
         build_foliage()
         build_concrete()
+    if args.only in (None, 'fx'):
         build_contact_shadow()
+        build_jet_sprites()
     if args.only in (None, 'sounds'):
         build_sounds()
 

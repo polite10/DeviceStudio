@@ -32,7 +32,7 @@ def main():
               'Physical ADASLab v2 runs under DeviceBoot v2')
         for mode in ('active','warn','off'):
             cfg=GameConfig(mode=mode,seed=42,duration=12)
-            world=TrafficWorld(cfg);d.runtime('RESET');d.runtime(cfg.command());d.runtime('H:1')
+            world=TrafficWorld(cfg);d.runtime('RESET');d.runtime(cfg.command());d.runtime(cfg.calibration());d.runtime('H:1')
             times=[];initial=None;latest={};no_actuation=True
             for _ in range(240):
                 started=time.monotonic();pedals=dict(gas=True,brake=False)
@@ -57,7 +57,7 @@ def main():
             check(not paused['grun'] and paused['a']==0,mode+': pause clears physical controller output')
         cfg=GameConfig(mode='active',acc=True,duration=12)
         world=TrafficWorld(cfg);world.cars=[];start_speed=world.ego
-        d.runtime('RESET');d.runtime(cfg.command());d.runtime('H:1')
+        d.runtime('RESET');d.runtime(cfg.command());d.runtime(cfg.calibration());d.runtime('H:1')
         no_pedals=dict(gas=False,brake=False)
         for _ in range(60):
             started=time.monotonic();state=d.runtime(world.command(no_pedals))['state'];world.advance(state,no_pedals)

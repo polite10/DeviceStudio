@@ -12,7 +12,7 @@ ApplicationWindow {
     visible: true
     width: 1360; height: 900
     minimumWidth: 1000; minimumHeight: 720
-    title: "Device Studio"
+    title: "ADASLab"
     color: "#0b121c"
     font.family: Qt.platform.os === "osx" ? "Helvetica Neue" : "Segoe UI"
     font.pixelSize: 13
@@ -120,8 +120,12 @@ ApplicationWindow {
                 RowLayout {
                     Layout.topMargin: 10; Layout.bottomMargin: 33; spacing: 11
                     Rectangle {
-                        width: 34; height: 34; radius: 9; color: "#63dec2"
-                        Text { anchors.centerIn: parent; text: "DS"; color: "#10251f"; font.pixelSize: 12; font.weight: Font.Bold }
+                        implicitWidth: 34; implicitHeight: 34; radius: 9
+                        gradient: Gradient {
+                            GradientStop { position: 0; color: "#7ef0d5" }
+                            GradientStop { position: 1; color: "#3fbfa6" }
+                        }
+                        Text { anchors.centerIn: parent; text: "DS"; color: "#0e2620"; font.family: window.font.family; font.pixelSize: 12; font.weight: Font.Bold }
                     }
                     Column {
                         spacing: 2
@@ -132,7 +136,7 @@ ApplicationWindow {
                 Text { text: "ÇALIŞMA ALANI"; color: "#647d8f"; font.family: window.font.family; font.pixelSize: 11; font.letterSpacing: 1.5; Layout.bottomMargin: 8 }
                 Repeater {
                     model: [
-                        {page:"game",title:"3B Sürüş",subtitle:"Saatten başlat · WASD",symbol:"3D"},
+                        {page:"game",title:"ADASLab",subtitle:"Sürüş · saatten başlat",symbol:"A"},
                         {page:"firmware",title:"Firmware",subtitle:"Yükleme ve kurtarma",symbol:"F"},
                         {page:"duello",title:"Düello",subtitle:"Karakter kontrolü",symbol:"D"},
                         {page:"console",title:"Komut konsolu",subtitle:"Cihazla iletişim",symbol:">"}

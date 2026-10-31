@@ -1,6 +1,6 @@
-# Device Studio
+# ADASLab
 
-Python + PySide6 / Qt Quick masaüstü uygulaması. Gerçek 3B sürüş, firmware yükleme, DeviceBoot yönetimi, Düello kontrolü ve komut konsolu aynı Studio penceresindedir. ADAS kararları saatteki C firmware'inde çalışır.
+ADASLab, Python + PySide6 / Qt Quick masaüstü uygulamasıdır; kaynakları bu `DeviceStudio` klasöründedir. Gerçek 3B sürüş, firmware yükleme, DeviceBoot yönetimi, Düello kontrolü ve komut konsolu aynı penceredir. ADAS kararları saatteki C firmware'inde çalışır.
 
 ## Açılış
 
@@ -15,35 +15,61 @@ Python 3.12+ gerekir. Başlatıcılar proje içindeki `.venv` ortamını hazırl
 .venv/bin/python studio.py
 ```
 
-Studio **3B Sürüş** sayfasını açar ve seçili ST-LINK seri portuna otomatik bağlanır. USB sonradan takıldıysa üstteki yenile düğmesiyle portları taratıp **Bağlan** seçin. `--game` de aynı Studio görünümünü açar. `--game-sim` fiziksel karta erişmeden derlenmiş ARM firmware'ini kullanır. Eski `--adas` / `--game-2d` seçenekleri bu yeni görünüme uyumluluk takma adıdır; eski ekranları açmaz.
+ADASLab sürüş sayfasıyla açılır ve seçili ST-LINK seri portuna otomatik bağlanır. Sol menünün ilk öğesi **ADASLab**'dır; **Firmware**, **Düello** ve **Komut konsolu** aynı listededir, üstte **Device Studio** başlığı durur. USB sonradan takıldıysa üstteki yenile düğmesiyle portları taratıp **Bağlan** seçin. `--game` de aynı Studio görünümünü açar. `--game-sim` fiziksel karta erişmeden derlenmiş ARM firmware'ini kullanır. Eski `--adas` / `--game-2d` seçenekleri bu yeni görünüme uyumluluk takma adıdır; eski ekranları açmaz.
 
 ## Saatten başlat, Studio'da oyna
 
-Kartta **ADASLab v2 (ID 3)** ve DeviceBoot v2 bulunmalıdır. Grafik değişikliği için firmware yeniden yüklenmez.
+Kartta **ADASLab v2 (ID 3)** ve DeviceBoot v2 bulunmalıdır. Masaüstündeki grafik değişiklikleri için firmware yeniden yüklenmez; kart ekranının yeni arayüzü için güncel `Firmware/ADASLab.dfw` paketini yükleyin.
 
-1. Saati ST-LINK USB bağlantısıyla bağlayın, Studio'yu açın ve **3B Sürüş** görünümünü etkin bırakın.
-2. Saatten **AKTIF / UYARI / KAPALI**, **ACC**, hedef hız **− / +** ve **TAKIP** ayarını seçin. Studio'nun üst göstergeleri bu değerleri salt okunur gösterir.
-3. Saatte **BASLAT** düğmesine dokunun. Oyun Studio'nun içindeki 3B sahnede başlar ve klavye odağı otomatik yola geçer.
-4. **W / ↑** gaz, **S / ↓** fren, **A–D / ← →** şerit değişimidir. Şerit tuşuna her basış bir şerit ister; otomatik tuş tekrarı ek şerit değişimi oluşturmaz. **C** takip/kaput kamerasını, **V** ADAS çizimlerini, **M** sesi açıp kapatır.
-5. Saatte **DURAKLAT**, bilgisayarda **Boşluk / Esc** sürüşü duraklatır. Saatte tekrar **BASLAT** aynı yolu sürdürür. Çarpışma veya 120 simülasyon saniyesi sonunda sonraki BASLAT yeni sürüş hazırlar.
+1. Saati ST-LINK USB bağlantısıyla bağlayın, ADASLab'ı açın ve sürüş görünümünü etkin bırakın.
+2. Giriş ekranındaki kartın **Aracını seç** bölümünden **Tofaş Şahin**, **Tesla Model 3** veya uçan **Tesla Taklacı Güvercin Serisi**'ni seçin. Seçilen araç vitrinde gösterilir, sürüşte kullanılır ve sonraki açılışta hatırlanır.
+3. Saatten **AKTİF / UYARI / KAPALI**, **ACC**, hedef hız **− / +** ve **TAKİP** ayarını seçin. Studio'nun üst göstergeleri bu değerleri salt okunur gösterir.
+4. Saatte **BAŞLAT** düğmesine dokunun. Oyun Studio'nun içindeki 3B sahnede başlar ve klavye odağı otomatik yola geçer.
+5. **W / ↑** gaz, **S / ↓** fren, **A–D / ← →** şerit değişimidir. Pedallar gerçek ayak gibi kademeli basılır (gaz 0,25 s, fren 0,25 s). Şerit tuşuna her basış bir şerit ister; otomatik tuş tekrarı ek şerit değişimi oluşturmaz. **C** takip/kaput kamerasını, **V** ADAS çizimlerini, **M** sesi açıp kapatır.
+6. Saatte **DURAKLAT**, bilgisayarda **Boşluk / Esc** sürüşü duraklatır. Saatte tekrar **BAŞLAT** aynı yolu sürdürür. Çarpışma veya 120 simülasyon saniyesi sonunda sonraki BAŞLAT yeni sürüş hazırlar.
 
 Sol alttaki gösterge paneli hızı, ACC hedef hız işaretini, ACC/FCW/AEB uyarı lambalarını, sinyal oklarını, takip süresini ve gaz/fren ivmesini gösterir. Sağ alttaki **Sensör görünümü** 110 m içindeki araçları şeritleriyle çizer; öndeki araç vurgulanır, takip mesafesi, TTC ve bağıl hız altında yazar. 3B sahnede öndeki araç ADAS kamera çerçevesiyle işaretlenir; ego şeridindeki **takip koridoru** hıza göre gereken takip mesafesini gösterir ve öndeki araç bu mesafeye girince sarıya, AEB'de kırmızıya döner. Sarı **ÇARPIŞMA UYARISI** FCW'yi, kırmızı **AEB · ACİL FREN** gerçek firmware'in acil fren isteğini ekran kenarı uyarısı ve sesli uyarıyla gösterir. Sürüş bitince puan, mesafe, uyarı, AEB müdahalesi, ramak kala ve ortalama tepki süresi özetlenir. ACC açıkken pedallara basmazsanız hedef hız ve takip süresini saat yönetir. Mod ve durum kart ekranında da izlenebilir.
 
+### Gerçek dünya fiziği
+
+Araçlar yayımlanmış verilerle sürülür (sürücü 75 kg dahil): **Tofaş Şahin 1.6** 59 kW / 126 N·m, beş ileri düz vites (0,5 s'lik vites boşlukları, gaz köklenince vites düşürme), arkadan itiş, ABS'siz 7,4 m/s² fren; 0–100 km/sa ≈12,5 s, en fazla ≈165 km/sa. **Tesla Model 3 Long Range AWD** 0–100 km/sa 4,5 s, 201 km/sa sınırlı, ≈10 m/s² fren, ayak gazdan çekilince tek pedal rejeneratif fren (≈1,3 m/s²; 1,3 m/s² üstünde stop lambası yanar, UN R13‑H). **Taklacı Güvercin** fanlarla yola basar: 0–60 mph 1,55 s (yalnız lastikle), 1,5 g fren. Hepsinde aerodinamik sürtünme, yuvarlanma direnci, motor/tahrik gecikmesi ve 0,12 s fren basıncı gecikmesi hesaplanır; kart protokolü 216 km/sa ile sınırlı olduğundan bu hızın üstüne çıkılmaz.
+
+Şerit değişimi en az sarsıntılı (beşinci derece) yanal yoldur: normalde en fazla 2,8 m/s² yanal ivme (≈2,7–2,9 s, gerçek sürüş ölçümlerinde 4–6 s olan sakin değişimden hızlı, kararlı bir manevra), öndeki araca TTC < 3 s ise lastik tutuşunun %60'ıyla kaçış manevrası. Yanal hareket yol boyunca ilerler: duran araç yana kaymaz. Manevra ortasında fikir değişirse yol mevcut konum, eğim ve eğrilikten yeniden planlanır.
+
+Trafik, Intelligent Driver Model (IDM) ile takip eder ve MOBIL ile şerit değiştirir: sürücülerin istenen hızı şeride göre (sol 105, orta 90, sağ 75 km/sa ortalamalı), takip süresi 1,0–2,0 s, konfor freni ≈2 m/s², acil fren en çok 9 m/s². Şerit değiştirmeden önce 1–2,5 s sinyal verirler (%15'i vermez), hiçbir arkadaki aracı 4 m/s²'den sert frene zorlamazlar ve sağ şeridi tercih ederler. Oyuncu da trafiğin parçasıdır: önüne giren oyuncu için arkadaki araç fren yapar, yavaş giden oyuncuyu arkadan gelenler geçer. Araç sınıfları gerçek boyutlarıyla (hatchback 4,05 m, sedan 4,55 m, SUV 4,50 m, hafif ticari 4,40 m, taksi) çarpışma ve ADAS hedef hesabına girer. Senaryo olayları korunur: 3–7 s arasında orta şeritteki araç 6 m/s² ile trafik sıkışıklığı sonuna kadar durur, 10. saniyede sağ şeritteki yavaş ticari araç orta şeride kesme yapar.
+
+### Tesla Taklacı Güvercin: uçuş
+
+Taklacı Güvercin, Ekim 2026 tanıtımındaki rampada başlar: şeridin üstünde, yoldan çeyrek boru gibi kalkan, dik bir duvarla 9 m'ye çıkan ve tavana kıvrılan J biçimli bir pist (kırmızı kenar çizgileri, kesik orta çizgi, yanında çelik iskele). Araç tavanda, fanların emişiyle ters tutunur; saatte BAŞLAT'a dokununca bırakır, iticileriyle 1,5 tur fıçı dönüşü atıp yola iner. Tanıtımda açıklandığı gibi iticiler basınçlı havayla çalışır ve yolda yeniden dolar. Sürüşte:
+
+| Tuş | Davranış |
+|---|---|
+| **R** | Bir uçuş katmanı yüksel: yol → 4 m → 9 m. Yerdeyken kalkış için hız gerekmez; tüpte iniş yedeği ve 60 kg pay yoksa reddedilir (**HAVA TÜPÜ AZ**). |
+| **F** | Bir katman alçal; 4 m'den iniş. Önümüzdeki 2 s içinde alttaki şeritte araç olacaksa iniş reddedilir ve **İNİŞ ŞERİDİ DOLU** görünür. |
+| **A / D** | Yolda takla: araç 0,75 m sıçrayıp 2,2 s'de şerit değiştirirken tam tur döner (≈12–14 kg hava). Havada yan iticilerle 2,4 s'de şerit değiştirir ve döner. Tüpte yeterli hava yoksa normal lastik şerit değişimi yapar. |
+| **W / S** | Havada arka ve burun iticileri 0,4 g iter/frenler; yolda motor ve frenler çalışır. |
+
+Fizik: 600 L karbon tüp, 700 bar / 15 °C'de ≈350 kg hava taşır; soğuk havanın çıkış hızı ≈640 m/s'dir (Isp ≈65 s). Her itme, itki ÷ çıkış hızı kadar hava harcar: 2,4 t'luk araç havada asılı kalmak için ≈34 kg/s yakar, yani dolu tüple fiziksel olarak ≈10 s havada kalır. Oyun kısa test sürüşleri için ölçeklenmiştir: hava 5,25 kat daha uzun yeter (dolu tüple ≈50 s uçuş, ≈6,5 kg/s) ve yolda çok daha hızlı dolar. Katmanlar arası çıkış/iniş hız ve ivme sınırlı bir referansı izler (en çok 4 m/s tırmanış, 5 m/s alçalma); kaldırma itkisi araç ağırlığının en çok 2 katıdır. Tüp, bulunulan yükseklikten iniş için gereken yedeğe (oyun ölçeğinde 7 kg + 1,4 kg/m) yaklaşınca araç kendiliğinden iner (**HAVA AZALDI · OTOMATİK İNİŞ**); yedek itme ve yan manevraya harcanmaz. 4,5 m/s'den sert yere değme kaza sayılır. Yolda tüp araç üstü kompresörle 17,5 kg/s dolar (boştan doluya ≈20 s); gerçek bir kompresör dolu tüp için yarım saat kadar çalışırdı. Üstteki **HAVA** göstergesi tüpteki kütleyi gösterir.
+
+Havadaki araç bir aracın tavanından yüksekse o araçla çarpışmaz ve onu ADAS hedefi saymaz; karta "önde hedef yok" ölçümü gider, uyarı ve AEB yalnız yolda çalışır. Kart protokolü değişmez. İticiler yakmaz, parlamaz: basınçlı havanın yoğunlaştırdığı nem beyaz bir buğu olarak görünür, aracın hızıyla geride kalır ve yere çarpınca yayılır; ağızlıklar soğuktan buğulanır. Kanat uçuşta ve sert frende kalkar. Üstteki **UÇUŞ** göstergesi katmanı gösterir.
+
+Kart, çarpışmaya 2,2 s kala uyarır (FCW; üretim araçlarında tipik 2–2,7 s). AEB son anda devreye girer: aracın kendi frenine göre (sürüş başında kalibre edilir: Şahin 7 m/s², Model 3 9,5 m/s², Taklacı Güvercin 14 m/s²) yaklaşma hızını 0,25 s tepki ve 2,5 m payla sıfırlayabileceği mesafede. Öndeki araç frenliyorsa kart bunu art arda ölçümlerden ölçer ve iki aracın da duracağı mesafeyi kullanır; 1,4 s'den yakın takipte öndekinin her an 6 m/s² ile frenleyebileceğini hesaba katar. Örneğin 200 km/sa'ten 80 km/sa giden araca yaklaşırken fren ≈80 m'de başlar (önceki sürümde ≈170 m'de).
+
 | Saatteki mod | Davranış |
 |---|---|
-| AKTIF | Uyarı ve AEB çalışır; AEB gaz tuşundan önceliklidir. ACC ayrıca açılabilir. |
+| AKTİF | Uyarı ve AEB çalışır; AEB gaz tuşundan önceliklidir. ACC ayrıca açılabilir. |
 | UYARI | Uyarılar gösterilir; otomatik gaz/fren uygulanmaz. |
 | KAPALI | ADAS uyarısı ve otomatik müdahale kapalıdır. |
 
-Başka sayfaya/pencereye geçmek veya yolun klavye odağını kaybetmesi sürüşü duraklatır ve basılı tuşları bırakır. Yeniden başlatmak için Studio penceresini etkinleştirip saatte BASLAT kullanın. Normal kullanımda ayrıca bir Godot/debug penceresi veya ayrı oyun uygulaması açılmaz. Eski **Trafik oyunu** ve **ADASLab** sayfaları kaldırılmıştır.
+Başka sayfaya/pencereye geçmek veya yolun klavye odağını kaybetmesi sürüşü duraklatır ve basılı tuşları bırakır. Yeniden başlatmak için ADASLab penceresini etkinleştirip saatte BAŞLAT kullanın. Normal kullanımda ayrıca bir Godot/debug penceresi veya ayrı oyun uygulaması açılmaz. Eski **Trafik oyunu** ve **ADASLab** sayfaları kaldırılmıştır.
 
 ## Görüntü ve iletişim
 
 Qt Quick 3D `View3D`, sahneyi doğrudan Studio penceresinde GPU ile çizer (macOS'ta Metal, Windows'ta Direct3D 11, Linux'ta OpenGL). `ExtendedSceneEnvironment` ACES ton eşleme, ekran uzayı ortam gölgesi (SSAO), HDR ışıma (fren lambaları), hafif vinyet ve kaskadlı yumuşak gölgeler kullanır. Gökyüzü ve çevre aydınlatması (HDR ışık probu) gerçek bir HDRI fotoğrafından, asfalt ve çim taranmış fotoğraf dokularından gelir; kaynaklar CC0 Poly Haven'dır ([ATTRIBUTION.md](device_studio/qml/assets/ATTRIBUTION.md)). İki yönlü otoyol; asfalt dokusu, tekerlek izleri, şerit/kenar çizgileri ve titreşim bandı özel shader'da, kaydırılan dünya koordinatlarında çizilir. Çevrede orta refüj bariyeri, W profilli korkuluklar, aydınlatma direkleri, tabela köprüsü, hız sınırı levhası, üst geçit, ağaçlık alanlar, tarlalar, uzak dağlar ve rüzgâr türbinleri vardır; karşı yönde yalnız görsel trafik akar. Tekrarlanan nesneler instancing ile çizilir.
 
-Ego araç, 1980'lerin kutu tipi Türk sedanı (Şahin) oranlarında Blender'da modellenmiştir: 4,5 m boy, 2,49 m dingil mesafesi; pahlı gövde, gerçek cam ve çamurluk boşlukları, kapı/kaput derzleri, gömme dikdörtgen farlar ve ızgara, siyah tamponlar, yatay stoplar, aynalar, jant kapakları, TR plakalar ve koltuk, torpido, direksiyonlu iç mekân. Logo içermez. Trafikte de görünür. Diğer trafik araçları CC0 Quaternius modellerinin Qt biçimine dönüştürülmüş beş sürümüdür. Vernikli metalik boya, koyu cam, gündüz farları, fren ve sinyal lambaları, süspansiyon (frenlemede burun dalışı, şerit değiştirirken yatma) ve yön dönüşü vardır. Kamera hız ve ivmeyle hafifçe geri çekilir ve görüş açısını genişletir; sürekli titreşim yoktur, yalnız AEB'de kısa ve düşük frekanslı bir sarsıntı olur; sürüş öncesinde ve sonunda araç etrafında döner. Tüm model, doku ve ses çıktıları depodadır; Studio'yu çalıştırmak için Blender, Godot, numpy, Pillow veya OpenCV gerekmez (bkz. [3B varlıkları yeniden üretme](#3b-varlıkları-yeniden-üretme)).
+Ego araç giriş ekranında seçilir. **Tofaş Şahin**, 1980'lerin kutu tipi Türk sedanı oranlarında Blender'da modellenmiştir: sahnede gerçek 4,32 m boyunda, 2,49 m dingil mesafesi; pahlı gövde, gerçek cam ve çamurluk boşlukları, kapı/kaput derzleri, gömme dikdörtgen farlar ve ızgara, siyah tamponlar, yatay stoplar, aynalar, jant kapakları, TR plakalar ve koltuk, torpido, direksiyonlu iç mekân. **Tesla Model 3**, gerçek aracın ölçülerinde (4,69 m boy, 1,85 m en, 1,44 m yükseklik, 2,875 m dingil mesafesi) analitik kesitlerle Blender'da modellenmiştir: alçak yuvarlak burun, ön camdan arka cama kesintisiz koyu cam tavan, gövde renkli A/C direkleri, parlak siyah B direği ve çerçeveler, ince farlar ve gündüz farı şeridi, L biçimli stoplar ve üst stop lambası, 18 inç aero jant kapakları, gömme kapı kolları, TR plakalar ve yüzen orta ekranlı sade iç mekân. İki model de logo içermez ve trafikte de görünür. **Tesla Taklacı Güvercin Serisi** (2028 Roadster), 15 Ekim 2026 tanıtımına göre köşeli kesitlerle modellenmiştir: burun ışık şeridinden ön tekerlek yuvasını geçip kuyruğa uzanan karakter çizgisiyle kama gövde, kaputun iki yanında yükselen ön çamurluklar, gizli köşe farları, altın tonlu camlı T‑top kabin ve beyaz orta omurga, ayna yerine kamera kanatçıkları, barge board ve siyah aero perdeler, tam genişlikte ince stop şeridi, açılır kuyruk kanadı, arka tamponun altında dört emme fanı ve Rocket donanımının basınçlı hava iticileri; 2,825 m dingil mesafesi ve 2,0 m genişlik yayımlanan değerlerdir, boy ve yükseklik tahmindir. Logo içermez; trafikte kullanılmaz. Trafik araçları da Blender'da gerçek ölçüleriyle modellenmiştir: Renault Clio sınıfı hatchback, Fiat Egea sınıfı sedan, Togg T10X / Hyundai Tucson sınıfı SUV (siyah çamurluk kaplamaları, tavan rayları), Fiat Doblo sınıfı hafif ticari (boyasız tamponlar, dikey stoplar, sac jantlar) ve tavanında ışıklı **TAKSİ** levhası, T plakalı sarı İstanbul taksisi; boyalı tavan, siyah çerçeveli camlar, karartılmış B direkleri, farlar ve gündüz farı şeritleri, ızgaralar, stop/geri vites/sinyal lambaları, aynalar, kapı derzleri ve kolları, alaşım jantlar, TR plakalar ve iç mekânla. Vernikli metalik boya, koyu cam, gündüz farları, fren ve sinyal lambaları, süspansiyon (frenlemede burun dalışı, şerit değiştirirken yatma) ve yön dönüşü vardır. Kamera hız ve ivmeyle hafifçe geri çekilir ve görüş açısını genişletir; sürekli titreşim yoktur, yalnız AEB'de kısa ve düşük frekanslı bir sarsıntı olur; sürüş öncesinde ve sonunda araç etrafında döner. Tüm model, doku ve ses çıktıları depodadır; Studio'yu çalıştırmak için Blender, Godot, numpy, Pillow veya OpenCV gerekmez (bkz. [3B varlıkları yeniden üretme](#3b-varlıkları-yeniden-üretme)).
 
-Python işçisi USB/UART'ın tek sahibidir. Boştayken `J` sorgusu saatin ayarlarını ve BASLAT isteğini okur; sürüşte 20 Hz CRC korumalı ölçümleri gönderir. Trafik/araç fiziği Python'da, FCW/AEB/ACC hesabı saatteki C kodunda çalışır. Yalnız doğrulanmış cevap fizik adımını 50 ms ilerletir. 3B çizim bu adımları simülasyon zamanıyla tamponlar ve ekran tazeleme hızında (120 Hz'e kadar) en yeni örneğin yaklaşık 100 ms gerisinden, iki örnek arasında hız bilgisiyle yumuşak eğri (Hermite) kullanarak çizer; seri hat gecikmesindeki dalgalanma hız sıçraması olarak görünmez. Saatin hassas hedef hızı sürüş başlarken bilgisayardan tekrar yazılmaz; 216 km/sa sınırı desteklenir.
+Python işçisi USB/UART'ın tek sahibidir. Boştayken `J` sorgusu saatin ayarlarını ve BAŞLAT isteğini okur; sürüşte 20 Hz CRC korumalı ölçümleri gönderir. Trafik/araç fiziği Python'da, FCW/AEB/ACC hesabı saatteki C kodunda çalışır. Yalnız doğrulanmış cevap fizik adımını 50 ms ilerletir. 3B çizim bu adımları simülasyon zamanıyla tamponlar ve ekran tazeleme hızında (120 Hz'e kadar) en yeni örneğin yaklaşık 100 ms gerisinden, iki örnek arasında hız bilgisiyle yumuşak eğri (Hermite) kullanarak çizer; seri hat gecikmesindeki dalgalanma hız sıçraması olarak görünmez. Saatin hassas hedef hızı sürüş başlarken bilgisayardan tekrar yazılmaz; 216 km/sa sınırı desteklenir.
 
 Arka plan sorguları düğmeleri kilitlemez. Kontroller, telemetri ve port listeleri ayrı bildirimlerle güncellenir; 3B sahne ve klavye odağı her örnekte yeniden oluşturulmaz. Pencere kapanırken işçi duraklatma/temizlik işlemini bitirir. Aynı portu PuTTY, CubeIDE, ikinci Studio veya eski bağımsız oyunla açık tutmayın.
 
@@ -58,13 +84,19 @@ Yalnız modeli veya dokuları değiştirirken gerekir. Komutlar macOS, Windows v
 .venv/bin/python tools/install_blender.py
 # Şahin: tools/sahin_blender.py ile Blender'da modeller, Balsam ile Qt biçimine çevirir, Sahin.qml yazar
 .venv/bin/python tools/build_sahin_model.py
-# Trafik araçları: Quaternius FBX dosyalarını Qt biçimine çevirir
-.venv/bin/python tools/import_qt_vehicles.py
+# Model 3: tools/model3_blender.py ile modeller, Model3.qml yazar ve Vehicle3D ölçülerini yazdırır
+.venv/bin/python tools/build_model3_model.py
+# Taklacı Güvercin: tools/roadster_blender.py ile modeller; Roadster.qml itici ağızlıklarını ve kanadı da yazar
+.venv/bin/python tools/build_roadster_model.py
+# Trafik araçları: tools/traffic_blender.py beş gövde tipini modeller; Hatch/Sedan/Suv/Van/Taxi.qml yazar
+.venv/bin/python tools/build_traffic_models.py
 # Gökyüzü, ışık probu, yüzeyler ve sesler; numpy, Pillow ve opencv-python kurulu bir Python ister
 python3 tools/generate_drive_assets.py --source <Poly Haven klasörü>
+# Yalnız temas gölgesi ve itici buğusu dokuları (numpy, Pillow)
+python3 tools/generate_drive_assets.py --only fx
 ```
 
-`BLENDER_BIN` başka bir Blender'ı seçer; Windows'ta `C:\Program Files\Blender Foundation` altındaki, macOS'ta `/Applications` altındaki kurulum da kendiliğinden bulunur. Şahin, Blender 5.2.3 ile doğrulanmıştır ve aynı girdiden her seferinde bayt bayt aynı dosyalar üretilir. `--source` klasöründe [ATTRIBUTION.md](device_studio/qml/assets/ATTRIBUTION.md)'deki Poly Haven dosyalarının 2k sürümleri ve gökyüzü için 8k HDR bulunmalıdır; bu kaynaklar depoya eklenmez.
+`BLENDER_BIN` başka bir Blender'ı seçer; Windows'ta `C:\Program Files\Blender Foundation` altındaki, macOS'ta `/Applications` altındaki kurulum da kendiliğinden bulunur. Şahin, Model 3, Roadster ve trafik araçları Blender 5.2.3 ile doğrulanmıştır ve aynı girdiden her seferinde bayt bayt aynı dosyalar üretilir. `--source` klasöründe [ATTRIBUTION.md](device_studio/qml/assets/ATTRIBUTION.md)'deki Poly Haven dosyalarının 2k sürümleri ve gökyüzü için 8k HDR bulunmalıdır; bu kaynaklar depoya eklenmez.
 
 ## Firmware yükleme ve bootloader
 

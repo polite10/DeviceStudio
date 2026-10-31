@@ -53,7 +53,7 @@ def main():
             d=device();config=GameConfig(mode=mode,duration=25,seed=42)
             world=TrafficWorld(config)
             if road=='constant-slow-target':world.cars=[TrafficCar(9,1.,45.,10.)]
-            d.runtime('RESET');d.runtime(config.command());d.runtime('H:1')
+            d.runtime('RESET');d.runtime(config.command());d.runtime(config.calibration());d.runtime('H:1')
             minimum=1000.;brake_override=False;no_assist=True
             try:
                 for _ in range(500):
