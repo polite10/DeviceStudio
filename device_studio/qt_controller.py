@@ -22,7 +22,7 @@ import serial.tools.list_ports
 from .connection import Device
 from .protocol import Firmware, ProtocolError
 from .adas_sim import Config, Runner, SCENARIOS
-from .game_sim import GameConfig, GameRunner, DriverInput, MODES, MODE_NAMES
+from .game_sim import AIR_FULL, VEHICLES, GameConfig, GameRunner, DriverInput, MODES, MODE_NAMES
 from . import programmer
 from .godot_bridge import GodotBridge, find_godot
 
@@ -90,7 +90,9 @@ class StudioController(QObject):
                           accelMps2=0., ttc=-1., gap=-1., warning=False, aeb=False, traffic=[],
                           score=0, collisions=0, nearMisses=0, warnings=0, interventions=0,
                           reactionMs=-1, results=[], rttMs=0., overruns=0, devicePanel=False,
-                          flight=False, layer=0, altitude=0., landingBlocked=False,
+                          egoLaneRate=0., egoLatAccel=0., egoSignal=0, egoBraking=False, vehicle='sahin', gear=0,
+                          flight=False, layer=0, altitude=0., roll=0., lift=0., boost=0., retro=0., side=0.,
+                          air=0., airFull=0., autoLand=False, airLow=False, landingBlocked=False,
                           renderer3dAvailable=find_godot(ROOT) is not None,
                           renderer3dConnected=False, renderer3dMessage='3B sürüş penceresi kapalı')
         self._cancel = threading.Event()
@@ -739,14 +741,16 @@ class StudioController(QObject):
 
     def _game_config(self):
         return GameConfig(mode=self._game['mode'], acc=self._game['accEnabled'], target_kmh=self._game['targetKmh'],
-                          headway_ms=self._game['headwayMs'], seed=self._game['seed'], flight=self._game['flight'])
+                          headway_ms=self._game['headwayMs'], seed=self._game['seed'], vehicle=self._game['vehicle'])
 
-    @Slot(bool)
-    def setFlightVehicle(self, flight):
-        """The ego car picked in the 3D view; a flying car gets R/F flight layers."""
-        if self._game['running'] or self._game['flight'] == bool(flight):
+    @Slot(str)
+    def setVehicle(self, vehicle):
+        """The ego car picked in the 3D view: its physics, and R/F flight for the flying one."""
+        if self._game['running'] or self._game['vehicle'] == vehicle or vehicle not in VEHICLES:
             return
-        self._game.update(flight=bool(flight), layer=0, altitude=0., landingBlocked=False)
+        flight = VEHICLES[vehicle].flight
+        self._game.update(vehicle=vehicle, flight=flight, layer=0, altitude=0., roll=0., landingBlocked=False,
+                          air=AIR_FULL if flight else 0., airFull=AIR_FULL if flight else 0., autoLand=False, airLow=False)
         self._game_world = None
         self._publish()
 

@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick3D
 import QtQuick3D.Helpers
+import QtQuick3D.Particles3D
 import QtMultimedia
 
 FocusScope {
@@ -28,36 +29,51 @@ FocusScope {
     readonly property bool showroom: !playing && game.status !== "paused" && !hoodCamera
     // The ego car is picked between drives and remembered across sessions.
     readonly property bool choosing: !playing && game.status !== "paused"
+    // Body roll and dive in degrees per m/s²: a soft 1980s sedan rolls ~7°/g,
+    // the Model 3 ~3.5°/g, the fan-held Roadster barely moves.
     readonly property var cars: [
-        {id: "sahin", name: "Tofaş Şahin", note: "1980'ler · klasik sedan", variant: 5, paint: "#b5221f", metallic: 0.15},
-        {id: "model3", name: "Tesla Model 3", note: "Elektrikli · cam tavan", variant: 6, paint: "#f2f4f5", metallic: 0.08},
-        {id: "roadster", name: "Tesla Roadster", note: "Uçar · ters rampadan", variant: 7, paint: "#eef0f1", metallic: 0.05, flight: true}]
+        {id: "sahin", name: "Tofaş Şahin", note: "1980'ler · klasik sedan", variant: 5, paint: "#b5221f", metallic: 0.15, roll: 0.7, dive: 0.34},
+        {id: "model3", name: "Tesla Model 3", note: "Elektrikli · cam tavan", variant: 6, paint: "#f2f4f5", metallic: 0.08, roll: 0.36, dive: 0.19},
+        {id: "roadster", name: "Tesla Taklacı Güvercin Serisi", note: "Uçar · ters rampadan", variant: 7, paint: "#eef0f1", metallic: 0.05, roll: 0.15, dive: 0.1, flight: true}]
     readonly property var egoCar: cars.find(car => car.id === garage.car) || cars[0]
-    // The Roadster flies: three layers on R/F, barrel-roll lane changes, and its
-    // drive starts hanging upside down under a half-pipe ramp, like the reveal.
+    // The Taklacı Güvercin (2028 Roadster design) flies: three layers on R/F, takla lane changes, and its
+    // drive starts upside down on the ceiling of the reveal's J-shaped launch ramp.
     readonly property bool flying: Boolean(egoCar.flight)
     // Read the car itself: the flying binding may not have re-evaluated yet.
-    onEgoCarChanged: { drive.settle(); if (studio) studio.setFlightVehicle(Boolean(egoCar.flight)) }
-    readonly property real rampCeiling: 6.49
+    onEgoCarChanged: { drive.settle(); if (studio) studio.setVehicle(egoCar.id) }
     readonly property real introTime: 1.7
-    // Half-pipe cross-section (x, y): quarter-pipe kickers tangent to the road at
-    // the shoulders, then a round crown whose underside holds the waiting car.
+    // The reveal's launch ramp, along our lane: a quarter pipe rising from the
+    // road behind the car, a straight wall, then a curl into a flat ceiling
+    // where the car waits upside down, pulled up by its fans. Ramp space: z back
+    // from the road tangent, y up, metres; the car's centre hangs at rampHang.
+    readonly property real rampCeiling: 9.0
+    readonly property real rampHang: -1.3
+    readonly property real rampWidth: 4.4
+    readonly property var rampProfile: {
+        const points = [], low = 3.5, wall = 2.5, high = 3.0, flat = 3.6
+        for (let i = 0; i <= 16; ++i) {
+            const a = Math.PI / 2 * i / 16
+            points.push([low * Math.sin(a), low - low * Math.cos(a)])
+        }
+        for (let i = 1; i <= 3; ++i)
+            points.push([low, low + wall * i / 3])
+        for (let i = 1; i <= 16; ++i) {
+            const a = Math.PI / 2 * i / 16
+            points.push([low - high + high * Math.cos(a), low + wall + high * Math.sin(a)])
+        }
+        for (let i = 1; i <= 3; ++i)
+            points.push([low - high - flat * i / 3, low + wall + high])
+        return points
+    }
+    // Deck slabs [z, y, pitch, length] centred half their thickness behind the
+    // driving surface, and the surface line's [z, y] midpoints for its markings.
     readonly property var rampSegments: {
-        const points = [], radius = 5.4, centre = 6.6 - radius, kicker = 1.2
-        for (let i = 0; i <= 6; ++i) {
-            const a = Math.PI / 2 * i / 6
-            points.push([radius + kicker - kicker * Math.sin(a), kicker - kicker * Math.cos(a)])
-        }
-        for (let i = 1; i <= 24; ++i)
-            points.push([radius * Math.cos(Math.PI * i / 24), centre + radius * Math.sin(Math.PI * i / 24)])
-        for (let i = 5; i >= 0; --i) {
-            const a = Math.PI / 2 * i / 6
-            points.push([-(radius + kicker - kicker * Math.sin(a)), kicker - kicker * Math.cos(a)])
-        }
-        const segments = []
+        const points = drive.rampProfile, segments = []
         for (let i = 1; i < points.length; ++i) {
-            const [x0, y0] = points[i - 1], [x1, y1] = points[i]
-            segments.push([(x0 + x1) / 2, (y0 + y1) / 2, Math.atan2(y1 - y0, x1 - x0) * 57.2958, Math.hypot(x1 - x0, y1 - y0) + 0.02])
+            const [z0, y0] = points[i - 1], [z1, y1] = points[i]
+            const length = Math.hypot(z1 - z0, y1 - y0), tz = (z1 - z0) / length, ty = (y1 - y0) / length
+            segments.push([(z0 + z1) / 2 + ty * 0.09, (y0 + y1) / 2 - tz * 0.09, -Math.atan2(y1 - y0, z1 - z0) * 57.2958,
+                           length + 0.03, (z0 + z1) / 2 - ty * 0.012, (y0 + y1) / 2 + tz * 0.012, i])
         }
         return segments
     }
@@ -75,10 +91,10 @@ FocusScope {
     readonly property real renderDelay: 0.1
     property var kin: ({
         clock: 0, renderT: 0, leadAverage: 0.1, buffer: [], target: 1,
-        distance: 0, speed: 0, accel: 0, lane: 1, x: 0, lateral: 0, latAccel: 0, yaw: 0,
-        pitch: 0, pitchRate: 0, roll: 0, rollRate: 0, signalSide: 0, signalUntil: 0,
+        distance: 0, speed: 0, accel: 0, lane: 1, laneRate: 0, x: 0, lateral: 0, latAccel: 0, yaw: 0,
+        pitch: 0, pitchRate: 0, roll: 0, rollRate: 0, flip: 0, lift: 0, jet: 0, retro: 0, side: 0,
         camX: 0, camBack: 9.2, orbit: 0, idle: 0, shake: 0, blink: false, lastBlink: false, lead: -1, slots: [],
-        alt: 0, lastAlt: 0, renderAlt: 0, rollFrom: 1, intro: -1, rampAt: 0, wing: 0, puff: -1
+        alt: 0, renderAlt: 0, intro: -1, rampAt: 0, wing: 0
     })
     readonly property var paints: [["#e8eaeb", 0.15], ["#f3f2ee", 0.05], ["#b4b9bd", 0.8], ["#6b7178", 0.7], ["#202326", 0.55],
         ["#1d3352", 0.65], ["#8e1c22", 0.6], ["#2d4b3e", 0.55], ["#c9bfa6", 0.35], ["#4a5560", 0.7], ["#5c1a26", 0.6], ["#d8dadb", 0.2]]
@@ -91,21 +107,26 @@ FocusScope {
                  [Qt.Key_A]:"a", [Qt.Key_Left]:"left", [Qt.Key_D]:"d", [Qt.Key_Right]:"right",
                  [Qt.Key_R]:"r", [Qt.Key_F]:"f"})[key] || ""
     }
-    function look(id) {
+    // Plant vehicle classes to their models; sizes match the plant's footprints.
+    readonly property var kinds: ({sedan: 0, suv: 1, hatch: 2, taxi: 3, van: 4, sahin: 5, model3: 6})
+    function look(id, kind) {
         const hash = Math.imul(id + 1, 2654435761) >>> 0
-        const pick = hash % 100
-        const variant = pick < 34 ? 0 : pick < 56 ? 1 : pick < 66 ? 3 : pick < 75 ? 2 : pick < 82 ? 4 : pick < 92 ? 5 : 6
-        const paint = variant === 3 ? ["#f2c12e", 0.25] : drive.paints[(hash >>> 8) % drive.paints.length]
+        const variant = kind in drive.kinds ? drive.kinds[kind] : 0
+        const paint = kind === "taxi" ? ["#f2c12e", 0.25] : drive.paints[(hash >>> 8) % drive.paints.length]
         return {variant: variant, paint: paint[0], metallic: paint[1]}
     }
     function sample() {
         const g = drive.game, k = drive.kin
         const entry = {t: Number(g.elapsed || 0), d: Number(g.distance || 0), v: Number(g.egoKmh || 0) / 3.6,
                        a: Number(g.accelMps2 || 0), lane: Number(g.egoLane === undefined ? 1 : g.egoLane),
-                       target: Number(g.targetLane === undefined ? 1 : g.targetLane), h: Number(g.altitude || 0), cars: {}}
+                       target: Number(g.targetLane === undefined ? 1 : g.targetLane), h: Number(g.altitude || 0),
+                       vy: Number(g.egoLaneRate || 0), ay: Number(g.egoLatAccel || 0), signal: Number(g.egoSignal || 0),
+                       braking: Boolean(g.egoBraking), roll: Number(g.roll || 0), lift: Number(g.lift || 0),
+                       boost: Number(g.boost || 0), retro: Number(g.retro || 0), side: Number(g.side || 0), cars: {}}
         for (const car of (g.traffic || []))
             entry.cars[car.id] = {z: entry.d + Number(car.relativeZ), v: Number(car.speedKmh) / 3.6,
-                                  lane: Number(car.lane), braking: Boolean(car.braking)}
+                                  lane: Number(car.lane), vy: Number(car.laneRate || 0), braking: Boolean(car.braking),
+                                  signal: Number(car.signal || 0), a: Number(car.accel || 0), kind: String(car.kind || "sedan")}
         const last = k.buffer.length ? k.buffer[k.buffer.length - 1] : null
         if (!last || entry.t < last.t - 0.001 || entry.d < last.d - 25) {
             // First sample or a new drive: start over instead of sliding backwards.
@@ -113,7 +134,7 @@ FocusScope {
             k.renderT = entry.t - drive.renderDelay
             k.leadAverage = drive.renderDelay
             k.distance = entry.d; k.lane = entry.lane; k.x = (entry.lane - 1) * 3.6; k.camX = k.x
-            k.rampAt = entry.d; k.rollFrom = Math.round(entry.lane)
+            k.rampAt = entry.d
             for (const slot of k.slots) slot.id = -1
         } else if (entry.t > last.t + 0.001) {
             k.buffer.push(entry)
@@ -123,10 +144,6 @@ FocusScope {
             k.buffer[k.buffer.length - 1] = entry  // same plant step, e.g. a status refresh
         }
         k.target = entry.target
-        if (Math.abs(entry.target - entry.lane) > 0.05) {
-            k.signalSide = entry.target > entry.lane ? 1 : -1
-            k.signalUntil = k.clock + 0.9
-        }
         // Delegates stay bound to plant car ids, so re-sorting never swaps cars.
         for (const slot of k.slots) slot.seen = false
         for (const key in entry.cars) {
@@ -136,7 +153,7 @@ FocusScope {
                 slot = k.slots.find(s => s.id < 0)
                 if (!slot)
                     continue
-                const style = drive.look(id)
+                const style = drive.look(id, entry.cars[key].kind)
                 slot.id = id; slot.styled = false; slot.vx = 0; slot.lane = entry.cars[key].lane
                 slot.variant = style.variant; slot.paint = style.paint; slot.metallic = style.metallic
             }
@@ -190,41 +207,55 @@ FocusScope {
         if (s1) {
             k.distance = drive.hermite(s0.d, s0.v, s1.d, s1.v, h, u)
             k.speed = s0.v + (s1.v - s0.v) * u
-            k.lane = s0.lane + (s1.lane - s0.lane) * u
+            // The plant's quintic lane path, through its sampled lateral rates.
+            k.lane = drive.hermite(s0.lane, s0.vy, s1.lane, s1.vy, h, u)
+            k.laneRate = s0.vy + (s1.vy - s0.vy) * u
+            k.latAccel = s0.ay + (s1.ay - s0.ay) * u
             k.alt = s0.h + (s1.h - s0.h) * u
             accel = s0.a + (s1.a - s0.a) * u
+            // Rolls wrap at a full turn: never spin back from 360° to 0°.
+            let roll1 = s1.roll
+            while (roll1 - s0.roll > 180) roll1 -= 360
+            while (roll1 - s0.roll < -180) roll1 += 360
+            k.flip = s0.roll + (roll1 - s0.roll) * u
+            k.lift = s0.lift + (s1.lift - s0.lift) * u
+            k.jet = s0.boost + (s1.boost - s0.boost) * u
+            k.retro = s0.retro + (s1.retro - s0.retro) * u
+            k.side = s0.side + (s1.side - s0.side) * u
         } else {
             // Buffer underrun: coast briefly on the last acknowledged step.
             const ahead = live ? drive.clamp(k.renderT - s0.t, 0, 0.25) : 0
             k.distance = s0.d + s0.v * ahead
             k.speed = s0.v
-            k.lane = s0.lane + drive.clamp(s0.target - s0.lane, -2.4 * ahead, 2.4 * ahead)
+            k.lane = s0.lane + s0.vy * ahead
+            k.laneRate = s0.vy; k.latAccel = s0.ay
             k.alt = s0.h
+            k.flip = s0.roll; k.lift = s0.lift; k.jet = s0.boost; k.retro = s0.retro; k.side = s0.side
         }
+        const near = s1 && u >= 0.5 ? s1 : s0
         k.accel += ((live ? accel : 0) - k.accel) * Math.min(1, dt * 10)
         k.blink = (k.clock % 0.7) < 0.38
 
-        const x = (k.lane - 1) * 3.6
-        const previousLateral = k.lateral
-        k.lateral += ((x - k.x) / dt - k.lateral) * Math.min(1, dt * 12)
-        k.latAccel += ((k.lateral - previousLateral) / dt - k.latAccel) * Math.min(1, dt * 8)
-        k.x = x
-        const yawTarget = -Math.atan2(k.lateral, Math.max(k.speed, 6)) * 57.2958
-        k.yaw += (drive.clamp(yawTarget, -11, 11) - k.yaw) * Math.min(1, dt * 10)
+        k.x = (k.lane - 1) * 3.6
+        k.lateral = k.laneRate * 3.6
+        // Heading follows the path; the flier's thrusters slide it sideways when slow.
+        const yawTarget = -Math.atan2(k.lateral, Math.max(k.speed, drive.flying ? 12 : 1)) * 57.2958
+        k.yaw += (drive.clamp(yawTarget, -25, 25) - k.yaw) * Math.min(1, dt * 10)
         // Suspension: nose dives under braking, squats on throttle, leans out of lane changes.
-        let state = drive.spring(k.pitch, k.pitchRate, drive.clamp(-k.accel * 0.24, -1.2, 2.3), 85, 13, dt)
+        const car = drive.egoCar
+        let state = drive.spring(k.pitch, k.pitchRate, drive.clamp(-k.accel * car.dive, -3, 3.5), 85, 13, dt)
         k.pitch = state[0]; k.pitchRate = state[1]
-        state = drive.spring(k.roll, k.rollRate, drive.clamp(k.latAccel * 0.09, -2.6, 2.6), 70, 12, dt)
+        state = drive.spring(k.roll, k.rollRate, drive.clamp((live ? k.latAccel : 0) * car.roll, -4, 4), 70, 12, dt)
         k.roll = state[0]; k.rollRate = state[1]
 
-        const signal = live && k.clock < k.signalUntil ? k.signalSide : 0
+        const signal = live ? near.signal : 0
         drive.updateFlight(dt)
         ego.x = k.x
         ego.eulerRotation = Qt.vector3d(0, 180 + k.yaw, 0)
         ego.bodyPitch = k.pitch
         ego.bodyRoll = k.roll
         ego.wheelAngle = -k.distance * 200
-        ego.braking = k.accel < -1.0
+        ego.braking = live && near.braking
         ego.indicator = signal
         ego.blinkOn = k.blink
         highway.distance = k.distance
@@ -241,10 +272,10 @@ FocusScope {
         sounds.road(live ? k.speed : 0)
     }
     // Roadster pose: hanging under the ramp before a drive, the drop-and-roll
-    // start, barrel rolls through lane changes, nozzles, wing and landing puff.
+    // start, then the plant's flight: takla rolls and hops, nozzles and wing.
     function updateFlight(dt) {
         const k = drive.kin
-        let alt = k.alt, flip = 0, thrust = 0, rolling = 0
+        let alt = k.alt, flip = 0, thrust = 0
         if (!drive.flying) {
             k.intro = -1
         } else if (drive.choosing) {
@@ -258,45 +289,75 @@ FocusScope {
             alt = start * (1 - f * f) + 0.9 * Math.sin(Math.PI * f) * (1 - f)
             flip = 180 + 540 * f * f * (3 - 2 * f)
             thrust = 1 - 0.4 * f
-            if (f >= 1) {
+            if (f >= 1)
                 k.intro = -1
-                k.puff = 0
-            }
         } else {
-            // One full barrel roll per lane, hopping clear of the road when low.
-            if (Math.abs(k.lane - Math.round(k.lane)) < 0.01)
-                k.rollFrom = Math.round(k.lane)
-            const p = drive.clamp(Math.abs(k.lane - k.rollFrom), 0, 1)
-            if (p > 0.001) {
-                flip = (k.lane > k.rollFrom ? -360 : 360) * p * p * (3 - 2 * p)
-                rolling = Math.sin(Math.PI * p)
-                alt += rolling * Math.max(0, 1.6 - k.alt)
-            }
-            const climb = drive.clamp(Math.abs(k.alt - k.lastAlt) / Math.max(dt, 0.001) / 7, 0, 1)
-            thrust = Math.max(rolling, k.alt > 0.05 ? 0.5 + 0.5 * climb : 0)
-            if (k.lastAlt > 0.4 && k.alt <= 0.05)
-                k.puff = 0
+            // The plant flies the car: takla roll, hop and nozzle thrust come sampled.
+            flip = k.flip
+            thrust = k.lift
         }
-        k.lastAlt = k.alt
+        const touchdown = drive.flying && !drive.choosing && k.renderAlt > 0.25 && alt <= 0.05
         k.renderAlt = alt
         k.wing += ((drive.flying && (alt > 0.3 || k.accel < -4) ? 1 : 0) - k.wing) * Math.min(1, dt * 4)
         ego.altitude = alt
         ego.flip = flip
         ego.thrust = thrust
-        ego.boost = drive.flying && drive.playing ? drive.clamp((k.accel - 1.2) / 1.6, 0, 1) : 0
+        ego.boost = drive.flying && drive.playing ? k.jet : 0
+        ego.retro = drive.flying && drive.playing ? k.retro : 0
+        ego.side = drive.flying && drive.playing ? k.side : 0
         ego.wing = k.wing
-        ramp.z = k.distance - k.rampAt
-        if (k.puff >= 0) {
-            k.puff += dt
-            if (k.puff > 0.9)
-                k.puff = -1
+        ramp.z = k.distance - k.rampAt - drive.rampHang
+        drive.updateJets(touchdown)
+    }
+    // Compressed-air jets leave each firing nozzle along its axis. The scene
+    // follows the car, so the air streams backwards at its speed: jets bend
+    // back and trail behind, and lift jets fan out where they meet the road.
+    function updateJets(touchdown) {
+        const k = drive.kin, item = ego.loaded
+        const nozzles = drive.flying && item && item.nozzles ? item.nozzles : null
+        const live = drive.playing || k.intro >= 0
+        const air = Qt.vector3d(0, 0, drive.playing ? k.speed : 0)
+        const reach = ego.altitude + 0.4
+        for (let i = 0; i < 4; ++i) {
+            const jet = liftJets.objectAt(i), splash = splashJets.objectAt(i), rear = boostJets.objectAt(i)
+            if (!jet || !splash || !rear)
+                continue
+            if (!nozzles) {
+                jet.emitRate = splash.emitRate = rear.emitRate = 0
+                continue
+            }
+            const n = nozzles.lift[i], b = nozzles.boost[i]
+            const p = item.mapPositionToScene(Qt.vector3d(n[0], n[1], n[2]))
+            const down = item.mapDirectionToScene(Qt.vector3d(0, -1, 0)).normalized()
+            const lift = live ? ego.thrust : 0
+            jet.position = p
+            jet.velocity.direction = down.times(18).plus(air)
+            jet.lifeSpan = drive.clamp(reach / 18 * 1000, 60, 420)
+            jet.emitRate = lift > 0.03 ? 260 * lift : 0
+            const ground = down.y < -0.5 ? drive.clamp(1.15 - ego.altitude / 10, 0, 1) : 0
+            splash.position = Qt.vector3d(p.x + down.x * reach, 0.08, p.z + down.z * reach)
+            splash.velocity.direction = air.plus(Qt.vector3d(0, 0.4, 0))
+            splash.emitRate = lift > 0.03 ? 120 * lift * ground : 0
+            if (touchdown)
+                splash.burst(26, 140, splash.position)
+            rear.position = item.mapPositionToScene(Qt.vector3d(b[0], b[1], b[2]))
+            rear.velocity.direction = item.mapDirectionToScene(Qt.vector3d(0, 0, -1)).normalized().times(34).plus(air)
+            rear.emitRate = live && ego.boost > 0.03 ? 80 * ego.boost : 0
         }
-        puff.visible = k.puff >= 0
-        if (k.puff >= 0) {
-            const grow = 1.6 + 3.4 * Math.sqrt(k.puff / 0.9)
-            puff.x = k.x
-            puff.scale = Qt.vector3d(grow * 1.3 / 100, grow * 2.4 / 100, 1)
-            puffMaterial.opacity = 0.7 * (1 - k.puff / 0.9)
+        // Nose pair: the one facing away from the push fires; both fire forward to brake.
+        for (let i = 0; i < 2; ++i) {
+            const jet = noseJets.objectAt(i)
+            if (!jet)
+                continue
+            const n = nozzles ? nozzles.yaw[i] : null
+            const out = n ? Math.sign(n[0]) : 0
+            const push = live ? Math.max(0, out * ego.side) : 0, brake = live ? ego.retro : 0
+            jet.emitRate = n && Math.max(push, brake) > 0.03 ? 70 * Math.max(push, brake) : 0
+            if (!n)
+                continue
+            jet.position = item.mapPositionToScene(Qt.vector3d(n[0], n[1], n[2]))
+            const local = Qt.vector3d(out * push, 0, brake).normalized()
+            jet.velocity.direction = item.mapDirectionToScene(local).normalized().times(24).plus(air)
         }
     }
     function updateTraffic(dt, span, live) {
@@ -316,23 +377,27 @@ FocusScope {
                 radarCars.push(null)
                 continue
             }
-            let lane
+            let signal, accel
             if (c0 && c1) {
                 slot.z = drive.hermite(c0.z, c0.v, c1.z, c1.v, h, u)
                 slot.speed = c0.v + (c1.v - c0.v) * u
                 slot.braking = u < 0.5 ? c0.braking : c1.braking
-                lane = c0.lane + (c1.lane - c0.lane) * u
+                slot.lane = drive.hermite(c0.lane, c0.vy, c1.lane, c1.vy, h, u)
+                slot.vx = (c0.vy + (c1.vy - c0.vy) * u) * 3.6
+                signal = u < 0.5 ? c0.signal : c1.signal
+                accel = c0.a + (c1.a - c0.a) * u
             } else {
                 const c = c0 || c1
-                slot.z = c.z + c.v * (c0 && live ? drive.clamp(k.renderT - s0.t, 0, 0.25) : 0)
+                const ahead = c0 && live ? drive.clamp(k.renderT - s0.t, 0, 0.25) : 0
+                slot.z = c.z + c.v * ahead
                 slot.speed = c.v
                 slot.braking = c.braking
-                lane = c.lane
+                slot.lane = c.lane + c.vy * ahead
+                slot.vx = c.vy * 3.6
+                signal = c.signal
+                accel = c.a
             }
-            const previousX = (slot.lane - 1) * 3.6
-            slot.lane = lane
-            slot.x = (lane - 1) * 3.6
-            slot.vx += ((slot.x - previousX) / dt - slot.vx) * Math.min(1, dt * 8)
+            slot.x = (slot.lane - 1) * 3.6
             if (!slot.styled) {
                 car.variant = slot.variant; car.paint = slot.paint; car.metallic = slot.metallic
                 slot.styled = true
@@ -341,10 +406,12 @@ FocusScope {
             car.visible = true
             car.x = slot.x
             car.z = -ahead
-            car.eulerRotation = Qt.vector3d(0, 180 - drive.clamp(Math.atan2(slot.vx, Math.max(slot.speed, 6)) * 57.2958, -9, 9), 0)
+            car.eulerRotation = Qt.vector3d(0, 180 - drive.clamp(Math.atan2(slot.vx, Math.max(slot.speed, 1)) * 57.2958, -25, 25), 0)
             car.wheelAngle = -slot.z * 200
+            car.bodyPitch = live ? drive.clamp(-accel * 0.3, -2.5, 3) : 0
             car.braking = slot.braking
-            car.indicator = Math.abs(slot.vx) > 0.3 ? (slot.vx > 0 ? 1 : -1) : 0
+            // Drivers signal before they steer and cancel as they settle in the lane.
+            car.indicator = live ? signal : 0
             car.blinkOn = k.blink
             const inPath = Math.abs(slot.lane - k.lane) < 0.6 || (Math.abs(k.target - k.lane) > 0.05 && Math.abs(slot.lane - k.target) < 0.6)
             if (ahead > 2.0 && inPath && ahead < leadAhead) { lead = i; leadAhead = ahead }
@@ -383,10 +450,10 @@ FocusScope {
                 return
             k.orbit += k.idle * 7
             k.idle = 0
-            // The Roadster hangs at the mouth of its ramp: sway in front of it
-            // and look up, since the tube walls hide it from the sides.
+            // The Taklacı Güvercin hangs from its ramp's ceiling: sway in front of
+            // the ramp and look up at the car.
             const a = (drive.flying ? 180 + 38 * Math.sin(k.orbit * 0.035) : k.orbit + 205) * Math.PI / 180
-            const radius = drive.flying ? 12 : 8.4, height = drive.flying ? 4.2 : 2.9, aim = drive.flying ? 8 : 1.5
+            const radius = drive.flying ? 19 : 8.4, height = drive.flying ? 5.5 : 2.9, aim = drive.flying ? 10.5 : 1.5
             driveCamera.position = Qt.vector3d(k.x + Math.sin(a) * radius, height, Math.cos(a) * radius)
             const dx = k.x - driveCamera.position.x, dz = -driveCamera.position.z, dy = aim - height
             driveCamera.eulerRotation = Qt.vector3d(Math.atan2(dy, Math.hypot(dx, dz)) * 57.2958, Math.atan2(-dx, -dz) * 57.2958, 0)
@@ -412,7 +479,7 @@ FocusScope {
         const show = drive.overlays && drive.playing && drive.mode !== "off" && !(drive.flying && k.renderAlt > 1)
         const leadCar = k.lead >= 0 ? traffic.objectAt(k.lead) : null
         const leadSlot = k.lead >= 0 ? k.slots[k.lead] : null
-        const gap = leadSlot ? Math.max(0, leadSlot.z - k.distance - 4.6) : 1e9
+        const gap = leadSlot ? Math.max(0, leadSlot.z - k.distance - (leadCar.length + ego.length) / 2) : 1e9
         const want = Math.max(6, k.speed * Number(drive.game.headwayMs || 1800) / 1000)
         const span = Math.max(1.5, Math.min(want, gap, 90))
         corridor.visible = show
@@ -433,7 +500,7 @@ FocusScope {
             target.visible = false
             return
         }
-        const half = [1.05, 0.0, 2.3]
+        const half = [leadCar.halfWidth, 0.0, leadCar.length / 2]
         let left = 1e9, right = -1e9, top = 1e9, bottom = -1e9, valid = true
         for (const cx of [-1, 1]) for (const cy of [0, 1]) for (const cz of [-1, 1]) {
             const p = scene.mapFrom3DScene(Qt.vector3d(leadCar.x + cx * half[0], cy * (leadCar.height || 1.35), leadCar.z + cz * half[2]))
@@ -467,7 +534,7 @@ FocusScope {
             slots.push({id: -1})
         drive.kin.slots = slots
         drive.sample()
-        if (studio) studio.setFlightVehicle(drive.flying)
+        if (studio) studio.setVehicle(drive.egoCar.id)
     }
 
     component Copy: Text { color: "#e5edf3"; font.pixelSize: 12; elide: Text.ElideRight }
@@ -508,7 +575,7 @@ FocusScope {
         required property var car
         readonly property bool chosen: drive.egoCar.id === tile.car.id
         objectName: "car_" + tile.car.id
-        implicitHeight: 56
+        implicitHeight: 62
         radius: 10
         color: tile.chosen ? "#183634" : tileArea.containsMouse ? "#18303d" : "#112330"
         border.width: tile.chosen ? 2 : 1
@@ -528,7 +595,11 @@ FocusScope {
             anchors.right: parent.right; anchors.rightMargin: 10
             anchors.verticalCenter: parent.verticalCenter
             spacing: 3
-            Copy { width: parent.width; text: tile.car.name; font.pixelSize: 14; font.weight: Font.DemiBold; color: tile.chosen ? "#f1f7f9" : "#c6d5de" }
+            Copy {
+                width: parent.width; text: tile.car.name; font.pixelSize: 13; font.weight: Font.DemiBold
+                wrapMode: Text.WordWrap; maximumLineCount: 2; lineHeight: 0.95
+                color: tile.chosen ? "#f1f7f9" : "#c6d5de"
+            }
             Copy { width: parent.width; text: tile.car.note; font.pixelSize: 11; color: tile.chosen ? "#8fc9bb" : "#7891a1" }
         }
         MouseArea {
@@ -557,6 +628,29 @@ FocusScope {
                 visible: drive.flying
                 caption: "UÇUŞ " + (["YOL", "4 m", "9 m"][Number(drive.game.layer || 0)] || "YOL")
                 ink: "#86c8ff"; lit: Number(drive.game.layer || 0) > 0
+            }
+            Rectangle {
+                // Thruster air: 600 L at 700 bar, spent at thrust / exhaust velocity, refilled on the road.
+                id: airGauge
+                objectName: "airGauge"
+                visible: drive.flying
+                readonly property real level: Number(drive.game.airFull) > 0 ? drive.clamp(Number(drive.game.air) / Number(drive.game.airFull), 0, 1) : 1
+                readonly property color ink: airGauge.level < 0.25 ? "#ff8a5c" : airGauge.level < 0.45 ? "#ffc35c" : "#86c8ff"
+                implicitWidth: airRow.implicitWidth + 26; implicitHeight: 31
+                radius: 8; color: "#142430"; border.color: "#27404f"
+                Row {
+                    id: airRow
+                    anchors.centerIn: parent; spacing: 8
+                    Copy { text: "HAVA"; color: airGauge.ink; font.pixelSize: 11; font.weight: Font.DemiBold; font.letterSpacing: 0.6 }
+                    Rectangle {
+                        width: 58; height: 6; radius: 3; color: "#26ffffff"; anchors.verticalCenter: parent.verticalCenter
+                        Rectangle { width: parent.width * airGauge.level; height: parent.height; radius: 3; color: airGauge.ink }
+                    }
+                    Copy {
+                        text: Math.round(Number(drive.game.air || 0)) + " kg"; color: "#c6d6e0"; font.pixelSize: 11
+                        font.features: { "tnum": 1 }
+                    }
+                }
             }
             Item { Layout.fillWidth: true }
             Copy { text: "AYARLAR SAATTEN"; color: "#748f9e"; font.pixelSize: 10; font.letterSpacing: 1 }
@@ -661,51 +755,197 @@ FocusScope {
                     delegate: Vehicle3D { visible: false; lamps: 0.4 }
                 }
                 Node {
-                    // Launch half-pipe over our carriageway, left behind at the start.
+                    // The J launch ramp of the reveal on our lane, left behind at the start.
                     id: ramp
                     objectName: "launchRamp"
                     visible: drive.flying && z < 90
-                    PrincipledMaterial { id: rampMaterial; baseColor: "#b7bec5"; metalness: 0.45; roughness: 0.45 }
+                    PrincipledMaterial { id: rampMaterial; baseColor: "#8f9498"; roughness: 0.82 }
+                    PrincipledMaterial {
+                        id: rampEdgeMaterial
+                        baseColor: "#ff3b3b"; roughness: 0.4
+                        emissiveFactor: Qt.vector3d(1.6, 0.12, 0.1)
+                    }
+                    PrincipledMaterial { id: rampLineMaterial; baseColor: "#f2f2ee"; roughness: 0.5 }
                     PrincipledMaterial { id: rampMarkMaterial; baseColor: "#202326"; roughness: 0.9 }
+                    PrincipledMaterial { id: trussMaterial; baseColor: "#a7adb3"; metalness: 0.85; roughness: 0.35 }
                     Repeater3D {
                         model: drive.rampSegments
                         delegate: Model {
                             required property var modelData
                             source: "#Cube"
-                            // The car waits at the mouth; the tube runs 13 m back behind it.
-                            position: Qt.vector3d(modelData[0], modelData[1], 6)
-                            eulerRotation.z: modelData[2]
-                            scale: Qt.vector3d(modelData[3] / 100, 0.0022, 0.14)
+                            position: Qt.vector3d(0, modelData[1], modelData[0])
+                            eulerRotation.x: modelData[2]
+                            scale: Qt.vector3d(drive.rampWidth / 100, 0.0018, modelData[3] / 100)
                             materials: rampMaterial
                         }
                     }
                     Repeater3D {
-                        // Tyre marks across the crown where the car drove upside down.
+                        // Red edge lines on both sides of the deck.
+                        model: drive.rampSegments.length * 2
+                        delegate: Model {
+                            required property int index
+                            readonly property var segment: drive.rampSegments[index >> 1]
+                            source: "#Cube"
+                            castsShadows: false
+                            position: Qt.vector3d((index & 1 ? 1 : -1) * (drive.rampWidth / 2 - 0.14), segment[5], segment[4])
+                            eulerRotation.x: segment[2]
+                            scale: Qt.vector3d(0.0012, 0.0002, segment[3] / 100)
+                            materials: rampEdgeMaterial
+                        }
+                    }
+                    Repeater3D {
+                        // Dashed white centre line.
+                        model: drive.rampSegments.filter(segment => segment[6] % 3 !== 0)
+                        delegate: Model {
+                            required property var modelData
+                            source: "#Cube"
+                            castsShadows: false
+                            position: Qt.vector3d(0, modelData[5], modelData[4])
+                            eulerRotation.x: modelData[2]
+                            scale: Qt.vector3d(0.0012, 0.0002, modelData[3] / 100)
+                            materials: rampLineMaterial
+                        }
+                    }
+                    Repeater3D {
+                        // Tyre marks on the ceiling where the car drove up and stopped.
                         model: [-0.86, 0.86]
                         delegate: Model {
                             required property real modelData
                             source: "#Cube"
-                            position: Qt.vector3d(modelData, drive.rampCeiling - 0.006, 6)
-                            scale: Qt.vector3d(0.0028, 0.0001, 0.138)
+                            position: Qt.vector3d(modelData, drive.rampCeiling - 0.004, -1.55)
+                            scale: Qt.vector3d(0.0028, 0.0001, 0.031)
                             castsShadows: false
                             materials: rampMarkMaterial
                         }
                     }
+                    // Steel scaffold beside the deck: three column pairs, rails every
+                    // 1.6 m, X braces behind the wall and beams over the ceiling.
+                    Repeater3D {
+                        model: [[-2.6, -3.0], [2.6, -3.0], [-2.6, 0.5], [2.6, 0.5], [-2.6, 4.3], [2.6, 4.3]]
+                        delegate: Model {
+                            required property var modelData
+                            source: "#Cube"
+                            position: Qt.vector3d(modelData[0], 4.8, modelData[1])
+                            scale: Qt.vector3d(0.0022, 0.096, 0.0022)
+                            materials: trussMaterial
+                        }
+                    }
+                    Repeater3D {
+                        model: 12
+                        delegate: Model {
+                            required property int index
+                            source: "#Cube"
+                            position: Qt.vector3d(index % 2 ? 2.6 : -2.6, 1.6 + 1.6 * (index >> 1), 0.65)
+                            scale: Qt.vector3d(0.0014, 0.0014, 0.073)
+                            materials: trussMaterial
+                        }
+                    }
+                    Repeater3D {
+                        model: 24
+                        delegate: Model {
+                            required property int index
+                            readonly property int bay: index >> 2
+                            source: "#Cube"
+                            position: Qt.vector3d(index & 1 ? 2.6 : -2.6, 0.8 + 1.6 * bay, 2.4)
+                            eulerRotation.x: (index & 2 ? 1 : -1) * 22.8
+                            scale: Qt.vector3d(0.0011, 0.0011, 0.0413)
+                            materials: trussMaterial
+                        }
+                    }
+                    Repeater3D {
+                        model: [-3.0, 0.5, 4.3]
+                        delegate: Model {
+                            required property real modelData
+                            source: "#Cube"
+                            position: Qt.vector3d(0, 9.55, modelData)
+                            scale: Qt.vector3d(0.054, 0.0022, 0.0022)
+                            materials: trussMaterial
+                        }
+                    }
                 }
-                Model {
-                    // Nitrogen puff spreading over the road where the Roadster touches down.
-                    id: puff
-                    source: "#Rectangle"
-                    visible: false
-                    y: 0.06
-                    eulerRotation.x: -90
-                    castsShadows: false; receivesShadows: false
-                    materials: PrincipledMaterial {
-                        id: puffMaterial
-                        baseColor: "#f2f6fa"; lighting: PrincipledMaterial.NoLighting
-                        opacityMap: Texture { source: "assets/fx/contact_shadow.png" }
-                        opacityChannel: Material.A
-                        alphaMode: PrincipledMaterial.Blend; opacity: 0
+                ParticleSystem3D {
+                    // The Taklacı Güvercin's compressed-air jets (driven by updateJets):
+                    // condensing moisture shows as quick white billows that thin out.
+                    id: jets
+                    objectName: "airJets"
+                    visible: drive.flying
+                    running: drive.flying && drive.visible
+                    SpriteParticle3D {
+                        id: jetPuff
+                        sprite: Texture { source: "assets/fx/jet_puff.png" }
+                        colorTable: Texture { source: "assets/fx/jet_life.png" }
+                        particleScale: 1
+                        maxAmount: 1600
+                        billboard: true
+                        sortMode: Particle3D.SortDistance
+                        colorVariation: Qt.vector4d(0.02, 0.02, 0.02, 0.2)
+                    }
+                    SpriteParticle3D {
+                        id: roadPuff
+                        sprite: Texture { source: "assets/fx/jet_puff.png" }
+                        colorTable: Texture { source: "assets/fx/jet_life.png" }
+                        particleScale: 1
+                        maxAmount: 900
+                        billboard: true
+                        sortMode: Particle3D.SortDistance
+                        color: "#c4eef1f3"
+                    }
+                    Repeater3D {
+                        id: liftJets
+                        model: 4
+                        delegate: ParticleEmitter3D {
+                            system: jets
+                            particle: jetPuff
+                            emitRate: 0
+                            lifeSpan: 160; lifeSpanVariation: 40
+                            particleScale: 0.22; particleEndScale: 1.25
+                            particleScaleVariation: 0.06; particleEndScaleVariation: 0.35
+                            particleRotationVariation: Qt.vector3d(0, 0, 180)
+                            particleRotationVelocityVariation: Qt.vector3d(0, 0, 120)
+                            velocity: VectorDirection3D { directionVariation: Qt.vector3d(2.5, 2.5, 2.5) }
+                        }
+                    }
+                    Repeater3D {
+                        id: splashJets
+                        model: 4
+                        delegate: ParticleEmitter3D {
+                            system: jets
+                            particle: roadPuff
+                            emitRate: 0
+                            lifeSpan: 900; lifeSpanVariation: 250
+                            particleScale: 0.5; particleEndScale: 2.6; particleEndScaleVariation: 0.8
+                            particleRotationVariation: Qt.vector3d(0, 0, 180)
+                            particleRotationVelocityVariation: Qt.vector3d(0, 0, 40)
+                            shape: ParticleShape3D { type: ParticleShape3D.Sphere; extents: Qt.vector3d(0.25, 0.02, 0.25) }
+                            velocity: VectorDirection3D { directionVariation: Qt.vector3d(6, 0.35, 6) }
+                        }
+                    }
+                    Repeater3D {
+                        id: noseJets
+                        model: 2
+                        delegate: ParticleEmitter3D {
+                            system: jets
+                            particle: jetPuff
+                            emitRate: 0
+                            lifeSpan: 220; lifeSpanVariation: 50
+                            particleScale: 0.1; particleEndScale: 0.6; particleEndScaleVariation: 0.15
+                            particleRotationVariation: Qt.vector3d(0, 0, 180)
+                            velocity: VectorDirection3D { directionVariation: Qt.vector3d(2, 2, 2) }
+                        }
+                    }
+                    Repeater3D {
+                        id: boostJets
+                        model: 4
+                        delegate: ParticleEmitter3D {
+                            system: jets
+                            particle: jetPuff
+                            emitRate: 0
+                            lifeSpan: 320; lifeSpanVariation: 60
+                            particleScale: 0.12; particleEndScale: 0.95; particleEndScaleVariation: 0.25
+                            particleRotationVariation: Qt.vector3d(0, 0, 180)
+                            particleRotationVelocityVariation: Qt.vector3d(0, 0, 90)
+                            velocity: VectorDirection3D { directionVariation: Qt.vector3d(2.5, 2.5, 2.5) }
+                        }
                     }
                 }
                 Node {
@@ -889,6 +1129,28 @@ FocusScope {
                 }
             }
 
+            // Thruster air: a refused climb, or the reserve flying the car down.
+            Rectangle {
+                objectName: "airBanner"
+                visible: drive.playing && drive.flying && (Boolean(drive.game.autoLand) || Boolean(drive.game.airLow))
+                         && !Boolean(drive.game.landingBlocked) && !(drive.emergency || drive.warning)
+                anchors.top: parent.top; anchors.horizontalCenter: parent.horizontalCenter; anchors.topMargin: 66
+                width: airBannerRow.implicitWidth + 40; height: 44; radius: 12
+                color: "#e63a2a08"; border.width: 2; border.color: "#ffc35c"
+                scale: viewport.ui
+                Row {
+                    id: airBannerRow; anchors.centerIn: parent; spacing: 10
+                    Copy {
+                        text: drive.game.autoLand ? "HAVA AZALDI · OTOMATİK İNİŞ" : "HAVA TÜPÜ AZ"
+                        color: "#ffc35c"; font.weight: Font.Bold; font.pixelSize: 16; font.letterSpacing: 1; anchors.verticalCenter: parent.verticalCenter
+                    }
+                    Copy {
+                        text: drive.game.autoLand ? "· yedek hava inişe ayrıldı" : "· yolda sürerken dolar"
+                        color: "#d9c39a"; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter
+                    }
+                }
+            }
+
             DriveCluster {
                 id: cluster
                 anchors.left: parent.left; anchors.bottom: parent.bottom; anchors.margins: 14
@@ -976,7 +1238,7 @@ FocusScope {
                         objectName: "watchStartHint"
                         width: parent.width; wrapMode: Text.WordWrap; color: "#c4d6e0"; font.pixelSize: 13; lineHeight: 1.4
                         text: !drive.available ? "Üstteki Bağlan düğmesiyle ADASLab yüklü saati bağla. Ardından saatte BAŞLAT’a dokun."
-                              : drive.flying && drive.choosing ? "Roadster rampanın altında ters bekliyor. Saatte BAŞLAT’a dokun; rampadan takla atarak yola iner."
+                              : drive.flying && drive.choosing ? "Taklacı Güvercin, tanıtımdaki J rampanın tavanında ters bekliyor. Saatte BAŞLAT’a dokun; iticileriyle takla atarak yola iner."
                               : "Modu ve ACC ayarını saatten seç. Saat ekranındaki BAŞLAT’a dokun; oyun burada başlayacak."
                     }
                     Flow {
