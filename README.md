@@ -22,13 +22,25 @@ ADASLab sürüş sayfasıyla açılır ve seçili ST-LINK seri portuna otomatik 
 Kartta **ADASLab v2 (ID 3)** ve DeviceBoot v2 bulunmalıdır. Masaüstündeki grafik değişiklikleri için firmware yeniden yüklenmez; kart ekranının yeni arayüzü için güncel `Firmware/ADASLab.dfw` paketini yükleyin.
 
 1. Saati ST-LINK USB bağlantısıyla bağlayın, ADASLab'ı açın ve sürüş görünümünü etkin bırakın.
-2. Giriş ekranındaki kartın **Aracını seç** bölümünden **Tofaş Şahin** veya **Tesla Model 3**'ü seçin. Seçilen araç vitrinde döner, sürüşte kullanılır ve sonraki açılışta hatırlanır.
+2. Giriş ekranındaki kartın **Aracını seç** bölümünden **Tofaş Şahin**, **Tesla Model 3** veya uçan **Tesla Roadster**'ı seçin. Seçilen araç vitrinde gösterilir, sürüşte kullanılır ve sonraki açılışta hatırlanır.
 3. Saatten **AKTİF / UYARI / KAPALI**, **ACC**, hedef hız **− / +** ve **TAKİP** ayarını seçin. Studio'nun üst göstergeleri bu değerleri salt okunur gösterir.
 4. Saatte **BAŞLAT** düğmesine dokunun. Oyun Studio'nun içindeki 3B sahnede başlar ve klavye odağı otomatik yola geçer.
 5. **W / ↑** gaz, **S / ↓** fren, **A–D / ← →** şerit değişimidir. Şerit tuşuna her basış bir şerit ister; otomatik tuş tekrarı ek şerit değişimi oluşturmaz. **C** takip/kaput kamerasını, **V** ADAS çizimlerini, **M** sesi açıp kapatır.
 6. Saatte **DURAKLAT**, bilgisayarda **Boşluk / Esc** sürüşü duraklatır. Saatte tekrar **BAŞLAT** aynı yolu sürdürür. Çarpışma veya 120 simülasyon saniyesi sonunda sonraki BAŞLAT yeni sürüş hazırlar.
 
 Sol alttaki gösterge paneli hızı, ACC hedef hız işaretini, ACC/FCW/AEB uyarı lambalarını, sinyal oklarını, takip süresini ve gaz/fren ivmesini gösterir. Sağ alttaki **Sensör görünümü** 110 m içindeki araçları şeritleriyle çizer; öndeki araç vurgulanır, takip mesafesi, TTC ve bağıl hız altında yazar. 3B sahnede öndeki araç ADAS kamera çerçevesiyle işaretlenir; ego şeridindeki **takip koridoru** hıza göre gereken takip mesafesini gösterir ve öndeki araç bu mesafeye girince sarıya, AEB'de kırmızıya döner. Sarı **ÇARPIŞMA UYARISI** FCW'yi, kırmızı **AEB · ACİL FREN** gerçek firmware'in acil fren isteğini ekran kenarı uyarısı ve sesli uyarıyla gösterir. Sürüş bitince puan, mesafe, uyarı, AEB müdahalesi, ramak kala ve ortalama tepki süresi özetlenir. ACC açıkken pedallara basmazsanız hedef hız ve takip süresini saat yönetir. Mod ve durum kart ekranında da izlenebilir.
+
+### Tesla Roadster: uçuş
+
+Roadster, Ekim 2026 tanıtımındaki gibi sürüşe yarım boru biçimli bir rampanın tepesinde ters asılı başlar: saatte BAŞLAT'a dokununca rampadan bırakır, itici jetleriyle 1,5 tur fıçı dönüşü atıp yola iner. Sürüşte:
+
+| Tuş | Davranış |
+|---|---|
+| **R** | Bir uçuş katmanı yüksel: yol → 4 m → 9 m. Yerdeyken kalkış için hız gerekmez. |
+| **F** | Bir katman alçal; 4 m'den iniş. Alttaki şeritte araç varsa iniş reddedilir ve **İNİŞ ŞERİDİ DOLU** görünür. |
+| **A / D** | Şerit değişimi her zaman tam bir fıçı dönüşüdür; yerdeyken araç dönüş için yoldan sıçrar. |
+
+Havadayken (1,6 m üzeri) yerdeki trafikle çarpışma ve ön araç hedefi yoktur; karta "önde hedef yok" ölçümü gider, uyarı ve AEB yalnız yolda çalışır. Kart protokolü değişmez. Tekerleklerin arkasındaki ve burundaki iticiler yükselirken ve dönerken, arkadaki dört itici hızlanırken jet verir; kanat uçuşta ve sert frende kalkar. Üstteki **UÇUŞ** göstergesi katmanı gösterir.
 
 | Saatteki mod | Davranış |
 |---|---|
@@ -42,7 +54,7 @@ Başka sayfaya/pencereye geçmek veya yolun klavye odağını kaybetmesi sürü�
 
 Qt Quick 3D `View3D`, sahneyi doğrudan Studio penceresinde GPU ile çizer (macOS'ta Metal, Windows'ta Direct3D 11, Linux'ta OpenGL). `ExtendedSceneEnvironment` ACES ton eşleme, ekran uzayı ortam gölgesi (SSAO), HDR ışıma (fren lambaları), hafif vinyet ve kaskadlı yumuşak gölgeler kullanır. Gökyüzü ve çevre aydınlatması (HDR ışık probu) gerçek bir HDRI fotoğrafından, asfalt ve çim taranmış fotoğraf dokularından gelir; kaynaklar CC0 Poly Haven'dır ([ATTRIBUTION.md](device_studio/qml/assets/ATTRIBUTION.md)). İki yönlü otoyol; asfalt dokusu, tekerlek izleri, şerit/kenar çizgileri ve titreşim bandı özel shader'da, kaydırılan dünya koordinatlarında çizilir. Çevrede orta refüj bariyeri, W profilli korkuluklar, aydınlatma direkleri, tabela köprüsü, hız sınırı levhası, üst geçit, ağaçlık alanlar, tarlalar, uzak dağlar ve rüzgâr türbinleri vardır; karşı yönde yalnız görsel trafik akar. Tekrarlanan nesneler instancing ile çizilir.
 
-Ego araç giriş ekranında seçilir. **Tofaş Şahin**, 1980'lerin kutu tipi Türk sedanı oranlarında Blender'da modellenmiştir: 4,5 m boy, 2,49 m dingil mesafesi; pahlı gövde, gerçek cam ve çamurluk boşlukları, kapı/kaput derzleri, gömme dikdörtgen farlar ve ızgara, siyah tamponlar, yatay stoplar, aynalar, jant kapakları, TR plakalar ve koltuk, torpido, direksiyonlu iç mekân. **Tesla Model 3**, gerçek aracın ölçülerinde (4,69 m boy, 1,85 m en, 1,44 m yükseklik, 2,875 m dingil mesafesi) analitik kesitlerle Blender'da modellenmiştir: alçak yuvarlak burun, ön camdan arka cama kesintisiz koyu cam tavan, gövde renkli A/C direkleri, parlak siyah B direği ve çerçeveler, ince farlar ve gündüz farı şeridi, L biçimli stoplar ve üst stop lambası, 18 inç aero jant kapakları, gömme kapı kolları, TR plakalar ve yüzen orta ekranlı sade iç mekân. İki model de logo içermez ve trafikte de görünür. Diğer trafik araçları CC0 Quaternius modellerinin Qt biçimine dönüştürülmüş beş sürümüdür. Vernikli metalik boya, koyu cam, gündüz farları, fren ve sinyal lambaları, süspansiyon (frenlemede burun dalışı, şerit değiştirirken yatma) ve yön dönüşü vardır. Kamera hız ve ivmeyle hafifçe geri çekilir ve görüş açısını genişletir; sürekli titreşim yoktur, yalnız AEB'de kısa ve düşük frekanslı bir sarsıntı olur; sürüş öncesinde ve sonunda araç etrafında döner. Tüm model, doku ve ses çıktıları depodadır; Studio'yu çalıştırmak için Blender, Godot, numpy, Pillow veya OpenCV gerekmez (bkz. [3B varlıkları yeniden üretme](#3b-varlıkları-yeniden-üretme)).
+Ego araç giriş ekranında seçilir. **Tofaş Şahin**, 1980'lerin kutu tipi Türk sedanı oranlarında Blender'da modellenmiştir: 4,5 m boy, 2,49 m dingil mesafesi; pahlı gövde, gerçek cam ve çamurluk boşlukları, kapı/kaput derzleri, gömme dikdörtgen farlar ve ızgara, siyah tamponlar, yatay stoplar, aynalar, jant kapakları, TR plakalar ve koltuk, torpido, direksiyonlu iç mekân. **Tesla Model 3**, gerçek aracın ölçülerinde (4,69 m boy, 1,85 m en, 1,44 m yükseklik, 2,875 m dingil mesafesi) analitik kesitlerle Blender'da modellenmiştir: alçak yuvarlak burun, ön camdan arka cama kesintisiz koyu cam tavan, gövde renkli A/C direkleri, parlak siyah B direği ve çerçeveler, ince farlar ve gündüz farı şeridi, L biçimli stoplar ve üst stop lambası, 18 inç aero jant kapakları, gömme kapı kolları, TR plakalar ve yüzen orta ekranlı sade iç mekân. İki model de logo içermez ve trafikte de görünür. **Tesla Roadster** (2028), 15 Ekim 2026 tanıtımına göre köşeli kesitlerle modellenmiştir: burun ışık şeridinden ön tekerlek yuvasını geçip kuyruğa uzanan karakter çizgisiyle kama gövde, kaputun iki yanında yükselen ön çamurluklar, gizli köşe farları, altın tonlu camlı T‑top kabin ve beyaz orta omurga, ayna yerine kamera kanatçıkları, barge board ve siyah aero perdeler, tam genişlikte ince stop şeridi, açılır kuyruk kanadı, arka tamponun altında dört emme fanı ve Rocket donanımının on soğuk gaz iticisi; 2,825 m dingil mesafesi ve 2,0 m genişlik yayımlanan değerlerdir, boy ve yükseklik tahmindir. Logo içermez; trafikte kullanılmaz. Diğer trafik araçları CC0 Quaternius modellerinin Qt biçimine dönüştürülmüş beş sürümüdür. Vernikli metalik boya, koyu cam, gündüz farları, fren ve sinyal lambaları, süspansiyon (frenlemede burun dalışı, şerit değiştirirken yatma) ve yön dönüşü vardır. Kamera hız ve ivmeyle hafifçe geri çekilir ve görüş açısını genişletir; sürekli titreşim yoktur, yalnız AEB'de kısa ve düşük frekanslı bir sarsıntı olur; sürüş öncesinde ve sonunda araç etrafında döner. Tüm model, doku ve ses çıktıları depodadır; Studio'yu çalıştırmak için Blender, Godot, numpy, Pillow veya OpenCV gerekmez (bkz. [3B varlıkları yeniden üretme](#3b-varlıkları-yeniden-üretme)).
 
 Python işçisi USB/UART'ın tek sahibidir. Boştayken `J` sorgusu saatin ayarlarını ve BAŞLAT isteğini okur; sürüşte 20 Hz CRC korumalı ölçümleri gönderir. Trafik/araç fiziği Python'da, FCW/AEB/ACC hesabı saatteki C kodunda çalışır. Yalnız doğrulanmış cevap fizik adımını 50 ms ilerletir. 3B çizim bu adımları simülasyon zamanıyla tamponlar ve ekran tazeleme hızında (120 Hz'e kadar) en yeni örneğin yaklaşık 100 ms gerisinden, iki örnek arasında hız bilgisiyle yumuşak eğri (Hermite) kullanarak çizer; seri hat gecikmesindeki dalgalanma hız sıçraması olarak görünmez. Saatin hassas hedef hızı sürüş başlarken bilgisayardan tekrar yazılmaz; 216 km/sa sınırı desteklenir.
 
@@ -61,13 +73,15 @@ Yalnız modeli veya dokuları değiştirirken gerekir. Komutlar macOS, Windows v
 .venv/bin/python tools/build_sahin_model.py
 # Model 3: tools/model3_blender.py ile modeller, Model3.qml yazar ve Vehicle3D ölçülerini yazdırır
 .venv/bin/python tools/build_model3_model.py
+# Roadster: tools/roadster_blender.py ile modeller; Roadster.qml itici jetlerini ve kanadı da yazar
+.venv/bin/python tools/build_roadster_model.py
 # Trafik araçları: Quaternius FBX dosyalarını Qt biçimine çevirir
 .venv/bin/python tools/import_qt_vehicles.py
 # Gökyüzü, ışık probu, yüzeyler ve sesler; numpy, Pillow ve opencv-python kurulu bir Python ister
 python3 tools/generate_drive_assets.py --source <Poly Haven klasörü>
 ```
 
-`BLENDER_BIN` başka bir Blender'ı seçer; Windows'ta `C:\Program Files\Blender Foundation` altındaki, macOS'ta `/Applications` altındaki kurulum da kendiliğinden bulunur. Şahin ve Model 3, Blender 5.2.3 ile doğrulanmıştır ve aynı girdiden her seferinde bayt bayt aynı dosyalar üretilir. `--source` klasöründe [ATTRIBUTION.md](device_studio/qml/assets/ATTRIBUTION.md)'deki Poly Haven dosyalarının 2k sürümleri ve gökyüzü için 8k HDR bulunmalıdır; bu kaynaklar depoya eklenmez.
+`BLENDER_BIN` başka bir Blender'ı seçer; Windows'ta `C:\Program Files\Blender Foundation` altındaki, macOS'ta `/Applications` altındaki kurulum da kendiliğinden bulunur. Şahin, Model 3 ve Roadster, Blender 5.2.3 ile doğrulanmıştır ve aynı girdiden her seferinde bayt bayt aynı dosyalar üretilir. `--source` klasöründe [ATTRIBUTION.md](device_studio/qml/assets/ATTRIBUTION.md)'deki Poly Haven dosyalarının 2k sürümleri ve gökyüzü için 8k HDR bulunmalıdır; bu kaynaklar depoya eklenmez.
 
 ## Firmware yükleme ve bootloader
 

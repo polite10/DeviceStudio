@@ -12,3 +12,9 @@ converted to metres; source +Z is rotated toward the road's -Z at runtime.
 or badges. `tools/sahin_blender.py` and `tools/model3_blender.py` build them in
 Blender; `tools/build_sahin_model.py` and `tools/build_model3_model.py` convert
 them with Balsam and write `Sahin.qml` and `Model3.qml`. Both also drive in traffic.
+
+`roadster/` is the flying ego car, an original model of the 2028 Tesla Roadster
+as revealed in October 2026, with no logos or badges. `tools/roadster_blender.py`
+builds it and `tools/build_roadster_model.py` writes `Roadster.qml`, which adds
+`thrust`, `boost` (cold gas nozzle glow and jets) and `wing` (pop-up tail wing)
+to the shared car contract. It is not used in traffic.
