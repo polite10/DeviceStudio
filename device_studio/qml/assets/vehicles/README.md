@@ -7,6 +7,8 @@ Balsam importer. Material bindings add clear-coated paint, tinted glass, lamps,
 brake lamps, rotating wheels and body pitch/roll. Source centimetres are
 converted to metres; source +Z is rotated toward the road's -Z at runtime.
 
-`sahin/` is the ego car, an original model of a boxy 1980s Turkish saloon with
-no logos or badges. `tools/sahin_blender.py` builds it in Blender and
-`tools/build_sahin_model.py` converts it with Balsam and writes `Sahin.qml`.
+`sahin/` and `model3/` are the selectable ego cars, original models of a boxy
+1980s Turkish saloon and of a Tesla Model 3 style electric saloon, with no logos
+or badges. `tools/sahin_blender.py` and `tools/model3_blender.py` build them in
+Blender; `tools/build_sahin_model.py` and `tools/build_model3_model.py` convert
+them with Balsam and write `Sahin.qml` and `Model3.qml`. Both also drive in traffic.

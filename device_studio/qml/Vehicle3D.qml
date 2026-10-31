@@ -17,11 +17,13 @@ Node {
     property bool blinkOn: false
     readonly property var sources: ["assets/vehicles/sedan/NormalCar1.qml", "assets/vehicles/suv/Suv.qml",
         "assets/vehicles/sports/SportsCar.qml", "assets/vehicles/taxi/Taxi.qml", "assets/vehicles/sports2/SportsCar2.qml",
-        "assets/vehicles/sahin/Sahin.qml"]
-    // Source bounds in metres (mesh-notes.json, build_sahin_model.py): length, z centre,
-    // half width, height; optionally indicator front/rear height and front/rear x.
+        "assets/vehicles/sahin/Sahin.qml", "assets/vehicles/model3/Model3.qml"]
+    // Source bounds in metres (mesh-notes.json, build_sahin_model.py, build_model3_model.py):
+    // length, z centre, half width, height; optionally indicator front/rear height and
+    // front/rear x, then front/rear z from the body centre (default ±2.2 after fitting).
     readonly property var specs: [[4.22071, 0.003, 0.904, 1.183], [4.20935, 0.0, 1.056, 1.51], [3.96871, 0.0, 0.902, 1.145],
-        [4.22072, 0.1035, 0.904, 1.3], [3.92700, -0.0655, 0.936, 1.187], [4.53, 0.005, 0.83, 1.395, 0.588, 0.7, 0.775, 0.468]]
+        [4.22072, 0.1035, 0.904, 1.3], [3.92700, -0.0655, 0.936, 1.187], [4.53, 0.005, 0.83, 1.395, 0.588, 0.7, 0.775, 0.468],
+        [4.708, 0.005, 0.92, 1.443, 0.729, 0.928, 0.776, 0.793, 2.011, -2.14]]
     readonly property var spec: specs[Math.max(0, Math.min(specs.length - 1, variant))]
     // All cars share a 4.6 m collision envelope with the firmware traffic plant.
     readonly property real fit: 4.6 / spec[0]
@@ -76,7 +78,7 @@ Node {
             visible: vehicle.blinkOn && vehicle.indicator !== 0 && vehicle.indicator === -modelData[0]
             x: modelData[0] * (vehicle.spec.length > 4 ? vehicle.spec[modelData[1] > 0 ? 6 : 7] * vehicle.fit : vehicle.halfWidth - 0.3)
             y: vehicle.spec.length > 4 ? vehicle.spec[modelData[1] > 0 ? 4 : 5] * vehicle.fit : vehicle.height * (modelData[1] > 0 ? 0.5 : 0.58)
-            z: modelData[1] * 2.2
+            z: vehicle.spec.length > 8 ? vehicle.spec[modelData[1] > 0 ? 8 : 9] * vehicle.fit : modelData[1] * 2.2
             scale: Qt.vector3d(0.0012, 0.0007, 0.0007)
             castsShadows: false
             materials: amber
