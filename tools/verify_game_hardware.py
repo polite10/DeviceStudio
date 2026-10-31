@@ -28,8 +28,8 @@ def main():
     d=Device(args.port)
     try:
         hello=d.detect()
-        check((hello['app'],hello['id'],hello['version'],hello['boot_version'])==('ADASLab',3,2,2),
-              'Physical ADASLab v2 runs under DeviceBoot v2')
+        check((hello['app'],hello['id'],hello['version'])==('ADASLab',3,2) and hello['boot_version']>=2,
+              'Physical ADASLab v2 runs under DeviceBoot v2 or later')
         for mode in ('active','warn','off'):
             cfg=GameConfig(mode=mode,seed=42,duration=12)
             world=TrafficWorld(cfg);d.runtime('RESET');d.runtime(cfg.command());d.runtime(cfg.calibration());d.runtime('H:1')
