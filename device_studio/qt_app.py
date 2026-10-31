@@ -25,15 +25,15 @@ def create_app(*, auto_connect=False, auto_adas=False, arm_sim=False, auto_game3
     # renders with Metal, and Apple's OpenGL 4.1 core crashes Qt's MSAA path.
     if sys.platform != 'darwin':
         QSurfaceFormat.setDefaultFormat(QQuick3D.idealSurfaceFormat())
-    app.setApplicationName('Device Studio')
-    app.setOrganizationName('DeviceStudio')
+    app.setApplicationName('ADASLab')
+    app.setOrganizationName('ADASLab')
     bridge = controller or StudioController(app, auto_adas=auto_adas, arm_sim=arm_sim)
     engine = QQmlApplicationEngine()
     engine.setInitialProperties({'studio': bridge})
     engine.load(QUrl.fromLocalFile(str(QML_MAIN)))
     if not engine.rootObjects():
         bridge.shutdown()
-        raise RuntimeError('Studio QML arayüzü yüklenemedi; konsoldaki hataları kontrol edin.')
+        raise RuntimeError('ADASLab QML arayüzü yüklenemedi; konsoldaki hataları kontrol edin.')
     window = engine.rootObjects()[0]
     QTimer.singleShot(0, lambda: activate_window(window))
     bridge.shutdownReady.connect(app.quit)
