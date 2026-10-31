@@ -77,6 +77,9 @@ class Device:
                 self.port.reset_input_buffer()
                 try: result=self.boot(HELLO,timeout=3,retries=0)
                 except TimeoutError: continue
+                # DeviceBoot v4 answers while it starts the application: wait for it.
+                if result.get('launching'):
+                    time.sleep(1.2);continue
                 if result.get('protocol')!=1 or result.get('base')!=APP_BASE or result.get('max')!=APP_MAX:
                     raise ProtocolError('Bootloader bellek yerlesimi uyusmuyor')
                 return result
