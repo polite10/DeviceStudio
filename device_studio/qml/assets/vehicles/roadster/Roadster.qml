@@ -19,8 +19,14 @@ Node {
     property real thrust: 0
     // 0..1: the four rear nozzles fire backwards.
     property real boost: 0
+    // 0..1: the nose nozzles brake in the air; -1..1: sideways push to the car's right.
+    property real retro: 0
+    property real side: 0
     // 0 flush with the tail .. 1 raised on its stabilisers.
     property real wing: 0
+    // Nozzle exits in metres, this frame: four lift nozzles under the floor, the
+    // nose pair that pushes sideways, the four rear ones. Drive3DView emits the jets.
+    readonly property var nozzles: ({lift: [[0.700, 0.118, 0.900], [-0.700, 0.118, 0.900], [0.700, 0.118, -1.925], [-0.700, 0.118, -1.925]], yaw: [[0.965, 0.430, 1.950], [-0.965, 0.430, 1.950]], boost: [[0.700, 0.700, -2.246], [0.550, 0.700, -2.246], [-0.550, 0.700, -2.246], [-0.700, 0.700, -2.246]]})
 
     PrincipledMaterial {
         id: paintMaterial
@@ -54,9 +60,10 @@ Node {
     PrincipledMaterial { id: signalMaterial; baseColor: "#e48a1c"; roughness: 0.22; emissiveFactor: Qt.vector3d(0.15, 0.06, 0) }
     PrincipledMaterial { id: fanMaterial; baseColor: "#1b1f24"; metalness: 0.8; roughness: 0.3 }
     PrincipledMaterial {
+        // Expanding cold air frosts the nozzle lips; nothing burns, nothing glows.
         id: thrusterMaterial
-        baseColor: "#2a3037"; metalness: 0.9; roughness: 0.25
-        emissiveFactor: Qt.vector3d(2.2, 2.8, 3.6).times(Math.max(root.thrust, root.boost))
+        readonly property real flow: Math.max(root.thrust, root.boost, root.retro, Math.abs(root.side))
+        baseColor: Qt.tint("#2a3037", Qt.rgba(0.86, 0.9, 0.94, 0.55 * flow)); metalness: 0.9 - 0.5 * flow; roughness: 0.25 + 0.4 * flow
     }
     PrincipledMaterial { id: wingMaterial; baseColor: root.paint; metalness: root.metallic; roughness: 0.26; clearcoatAmount: 1 }
     PrincipledMaterial { id: plateMaterial; baseColor: "#f4f4ef"; roughness: 0.5 }
@@ -68,12 +75,6 @@ Node {
     PrincipledMaterial { id: aeroMaterial; baseColor: "#24272b"; metalness: 0.7; roughness: 0.3 }
     PrincipledMaterial { id: aeroAccentMaterial; baseColor: "#b9c0c7"; metalness: 0.9; roughness: 0.25 }
     PrincipledMaterial { id: capMaterial; baseColor: "#0c0d0f"; roughness: 0.2; clearcoatAmount: 1 }
-    PrincipledMaterial {
-        // Cold nitrogen jets: pale, translucent, unlit.
-        id: plumeMaterial
-        baseColor: "#e8f0f8"; lighting: PrincipledMaterial.NoLighting
-        alphaMode: PrincipledMaterial.Blend; opacity: 0.3
-    }
 
     Node {
         // The body rotates around its suspension centre; wheels stay on the road.
@@ -99,45 +100,6 @@ Node {
             // The tail section rises on its stabiliser fins.
             y: root.wing * 0.2
             Model { source: "meshes/roadsterWing_mesh.mesh"; materials: wingMaterial }
-        }
-        // Jets grow from each nozzle: #Cone points up with its tip at +50.
-        Repeater3D {
-            model: [[0.700, 0.118, 0.900], [-0.700, 0.118, 0.900], [0.700, 0.118, -1.925], [-0.700, 0.118, -1.925]]
-            delegate: Model {
-                required property var modelData
-                source: "#Cone"
-                visible: root.thrust > 0.02
-                position: Qt.vector3d(modelData[0], modelData[1] - 0.5 * root.thrust, modelData[2])
-                scale: Qt.vector3d(0.0016 + 0.0014 * root.thrust, 0.01 * root.thrust, 0.0016 + 0.0014 * root.thrust)
-                castsShadows: false; receivesShadows: false
-                materials: plumeMaterial
-            }
-        }
-        Repeater3D {
-            model: [[0.965, 0.430, 1.950], [-0.965, 0.430, 1.950]]
-            delegate: Model {
-                required property var modelData
-                source: "#Cone"
-                visible: root.thrust > 0.02
-                position: Qt.vector3d(modelData[0] + Math.sign(modelData[0]) * 0.18 * root.thrust, modelData[1], modelData[2])
-                eulerRotation.z: modelData[0] > 0 ? 90 : -90
-                scale: Qt.vector3d(0.001 + 0.001 * root.thrust, 0.0036 * root.thrust, 0.001 + 0.001 * root.thrust)
-                castsShadows: false; receivesShadows: false
-                materials: plumeMaterial
-            }
-        }
-        Repeater3D {
-            model: [[0.700, 0.700, -2.246], [0.550, 0.700, -2.246], [-0.550, 0.700, -2.246], [-0.700, 0.700, -2.246]]
-            delegate: Model {
-                required property var modelData
-                source: "#Cone"
-                visible: root.boost > 0.02
-                position: Qt.vector3d(modelData[0], modelData[1], modelData[2] - 0.45 * root.boost)
-                eulerRotation.x: 90
-                scale: Qt.vector3d(0.0012 + 0.0012 * root.boost, 0.009 * root.boost, 0.0012 + 0.0012 * root.boost)
-                castsShadows: false; receivesShadows: false
-                materials: plumeMaterial
-            }
         }
     }
     Repeater3D {
