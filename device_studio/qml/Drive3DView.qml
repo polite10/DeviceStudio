@@ -21,8 +21,8 @@ FocusScope {
     readonly property color signalColor: emergency ? "#ff5a68" : warning ? "#ffc35c" : "#63dec2"
     // The firmware caps TTC at 60 s; anything at the cap is not a closing hazard.
     readonly property bool closingTtc: Number(game.ttc) >= 0 && Number(game.ttc) < 59.9
+    readonly property bool busy: studio ? Boolean(studio.state.busy) : false
     property bool hoodCamera: false
-    property bool overlays: true
     property bool soundOn: true
     // Per-frame updates run while driving, briefly after any change, and for
     // the showroom orbit only while Studio is the active application.
@@ -39,13 +39,21 @@ FocusScope {
     // The Taklacı Güvercin (2028 Roadster design) flies: three layers on R/F, takla lane changes, and its
     // drive starts upside down on the ceiling of the reveal's J-shaped launch ramp.
     readonly property bool flying: Boolean(egoCar.flight)
+    // A new drive of the flier opens with it driving up the ramp while the plant waits.
+    readonly property bool launching: playing && flying && Boolean(game.launching)
+    readonly property real climbTime: Math.max(1, Number(game.launchSeconds || 4.6) - 0.6)
+    property real launchKmh: 0
     // Read the car itself: the flying binding may not have re-evaluated yet.
     onEgoCarChanged: { drive.settle(); if (studio) studio.setVehicle(egoCar.id) }
-    readonly property real introTime: 1.7
+    readonly property real introTime: 2.2
+    // The launch is filmed from beside the road, far enough to show the whole J.
+    readonly property var spectator: ({x: 28, y: 3.6, z: -10, fov: 50})
     // The reveal's launch ramp, along our lane: a quarter pipe rising from the
     // road behind the car, a straight wall, then a curl into a flat ceiling
-    // where the car waits upside down, pulled up by its fans. Ramp space: z back
+    // where the car stops upside down, pulled up by its fans. Ramp space: z back
     // from the road tangent, y up, metres; the car's centre hangs at rampHang.
+    // Before a drive it waits rampRun metres down the road, facing the ramp.
+    readonly property real rampRun: 24
     readonly property real rampCeiling: 9.0
     readonly property real rampHang: -1.3
     readonly property real rampWidth: 4.4
@@ -77,7 +85,48 @@ FocusScope {
         }
         return segments
     }
-    Settings { id: garage; category: "drive"; property string car: "sahin" }
+    // The car's way up: [distance, z, y] from where it waits, along the ramp's surface.
+    readonly property var rampTrack: {
+        const points = [[drive.rampHang - drive.rampRun, 0]].concat(drive.rampProfile), track = []
+        let distance = 0
+        for (let i = 0; i < points.length; ++i) {
+            if (i)
+                distance += Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1])
+            track.push([distance, points[i][0], points[i][1]])
+        }
+        return track
+    }
+    function rampPoint(distance) {
+        const track = drive.rampTrack
+        if (distance <= 0)
+            return [track[0][1] + distance, 0]
+        let i = 1
+        while (i < track.length - 1 && track[i][0] < distance)
+            ++i
+        const a = track[i - 1], b = track[i], u = (distance - a[0]) / (b[0] - a[0])
+        return [a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u]
+    }
+    // Pose climbing, with both axles on the surface, so it follows the curve as a
+    // rigid car does. Eases from rest to a stop with the car's centre at rampHang.
+    function climbPose(time) {
+        const last = drive.rampTrack[drive.rampTrack.length - 1]
+        const stop = last[0] - (drive.rampHang - last[1])
+        const u = drive.clamp(time / drive.climbTime, 0, 1), axle = ego.length * 0.31
+        const distance = stop * u * u * (3 - 2 * u)
+        const rear = drive.rampPoint(distance - axle), front = drive.rampPoint(distance + axle)
+        return {distance: distance, kmh: stop * 6 * u * (1 - u) / drive.climbTime * 3.6,
+                y: (rear[1] + front[1]) / 2, z: (rear[0] + front[0]) / 2 - drive.rampHang,
+                pitch: -Math.atan2(front[1] - rear[1], front[0] - rear[0]) * 57.2958}
+    }
+    Settings {
+        id: garage
+        category: "drive"
+        property string car: "sahin"
+        // The ADAS drawings the driver wants; remembered like the car.
+        property bool corridor: true
+        property bool bracket: true
+        property bool sensors: true
+    }
     property bool settling: true
     function settle() { drive.settling = true; settleTimer.restart() }
     implicitHeight: 625
@@ -94,7 +143,7 @@ FocusScope {
         distance: 0, speed: 0, accel: 0, lane: 1, laneRate: 0, x: 0, lateral: 0, latAccel: 0, yaw: 0,
         pitch: 0, pitchRate: 0, roll: 0, rollRate: 0, flip: 0, lift: 0, jet: 0, retro: 0, side: 0,
         camX: 0, camBack: 9.2, orbit: 0, idle: 0, shake: 0, blink: false, lastBlink: false, lead: -1, slots: [],
-        alt: 0, renderAlt: 0, intro: -1, rampAt: 0, wing: 0
+        alt: 0, renderAlt: 0, intro: -1, rampAt: 0, wing: 0, climb: 0, launchClock: 0, spectatorAt: [28, 3.6, -10, 36]
     })
     readonly property var paints: [["#e8eaeb", 0.15], ["#f3f2ee", 0.05], ["#b4b9bd", 0.8], ["#6b7178", 0.7], ["#202326", 0.55],
         ["#1d3352", 0.65], ["#8e1c22", 0.6], ["#2d4b3e", 0.55], ["#c9bfa6", 0.35], ["#4a5560", 0.7], ["#5c1a26", 0.6], ["#d8dadb", 0.2]]
@@ -104,8 +153,8 @@ FocusScope {
     function focusDriving() { if (playing && visible) viewport.forceActiveFocus() }
     function keyName(key) {
         return ({[Qt.Key_W]:"w", [Qt.Key_Up]:"up", [Qt.Key_S]:"s", [Qt.Key_Down]:"down",
-                 [Qt.Key_A]:"a", [Qt.Key_Left]:"left", [Qt.Key_D]:"d", [Qt.Key_Right]:"right",
-                 [Qt.Key_R]:"r", [Qt.Key_F]:"f"})[key] || ""
+                 [Qt.Key_Space]:"space", [Qt.Key_A]:"a", [Qt.Key_Left]:"left", [Qt.Key_D]:"d",
+                 [Qt.Key_Right]:"right", [Qt.Key_R]:"r", [Qt.Key_F]:"f"})[key] || ""
     }
     // Plant vehicle classes to their models; sizes match the plant's footprints.
     readonly property var kinds: ({sedan: 0, suv: 1, hatch: 2, taxi: 3, van: 4, sahin: 5, model3: 6})
@@ -186,7 +235,7 @@ FocusScope {
         if (dt <= 0 || !k.buffer.length)
             return
         k.clock += dt
-        const live = drive.playing
+        const live = drive.playing && !drive.launching
         const newest = k.buffer[k.buffer.length - 1].t
         if (live) {
             // Stay about renderDelay behind the newest step. The plant may run a
@@ -249,7 +298,6 @@ FocusScope {
         k.roll = state[0]; k.rollRate = state[1]
 
         const signal = live ? near.signal : 0
-        drive.updateFlight(dt)
         ego.x = k.x
         ego.eulerRotation = Qt.vector3d(0, 180 + k.yaw, 0)
         ego.bodyPitch = k.pitch
@@ -258,8 +306,10 @@ FocusScope {
         ego.braking = live && near.braking
         ego.indicator = signal
         ego.blinkOn = k.blink
+        drive.updateFlight(dt)
         highway.distance = k.distance
-        highway.drivingTime = k.renderT
+        // The far carriageway keeps flowing while the plant waits for the launch.
+        highway.drivingTime = k.renderT + k.launchClock
         cluster.indicator = signal
         cluster.blinkOn = k.blink
         if (signal !== 0 && k.blink && !k.lastBlink)
@@ -268,19 +318,32 @@ FocusScope {
 
         drive.updateTraffic(dt, span, live)
         drive.updateCamera(dt)
+        drive.updateLandingCamera()
         drive.updateOverlays()
-        sounds.road(live ? k.speed : 0)
+        sounds.road(drive.launching ? drive.launchKmh / 3.6 : live ? k.speed : 0)
     }
-    // Roadster pose: hanging under the ramp before a drive, the drop-and-roll
-    // start, then the plant's flight: takla rolls and hops, nozzles and wing.
+    // Roadster pose: waiting before the ramp, up it to a stop on the ceiling, the
+    // drop-and-roll, then the plant's flight: takla rolls and hops, nozzles and wing.
     function updateFlight(dt) {
         const k = drive.kin
-        let alt = k.alt, flip = 0, thrust = 0
+        let alt = k.alt, flip = 0, thrust = 0, y = 0, z = 0
         if (!drive.flying) {
             k.intro = -1
-        } else if (drive.choosing) {
-            alt = drive.rampCeiling - ego.height
-            flip = 180
+        } else if (drive.choosing || drive.launching) {
+            if (drive.launching) {
+                k.climb += dt
+                k.launchClock += dt
+            } else {
+                k.climb = 0
+                k.intro = -1
+            }
+            const pose = drive.climbPose(k.climb)
+            alt = 0
+            y = pose.y
+            z = pose.z
+            ego.eulerRotation = Qt.vector3d(pose.pitch, 0, 0)
+            ego.wheelAngle = -pose.distance * 200
+            drive.launchKmh = pose.kmh
             k.rampAt = k.distance
         } else if (k.intro >= 0) {
             k.intro += dt
@@ -289,6 +352,9 @@ FocusScope {
             alt = start * (1 - f * f) + 0.9 * Math.sin(Math.PI * f) * (1 - f)
             flip = 180 + 540 * f * f * (3 - 2 * f)
             thrust = 1 - 0.4 * f
+            // The plant is already at speed: drift back with the road at first, so
+            // the car gathers way from rest, and be back in place on landing.
+            z = k.speed * drive.introTime * f * (1 - f) * (1 - f)
             if (f >= 1)
                 k.intro = -1
         } else {
@@ -299,6 +365,8 @@ FocusScope {
         const touchdown = drive.flying && !drive.choosing && k.renderAlt > 0.25 && alt <= 0.05
         k.renderAlt = alt
         k.wing += ((drive.flying && (alt > 0.3 || k.accel < -4) ? 1 : 0) - k.wing) * Math.min(1, dt * 4)
+        ego.y = y
+        ego.z = z
         ego.altitude = alt
         ego.flip = flip
         ego.thrust = thrust
@@ -425,6 +493,19 @@ FocusScope {
     }
     function updateCamera(dt) {
         const k = drive.kin
+        if (drive.flying && (drive.choosing || drive.launching)) {
+            if (drive.choosing) {
+                // Idle: redrawn at ~30 Hz, like the showroom orbit below.
+                k.idle += dt
+                if (k.idle < 1 / 30)
+                    return
+                k.orbit += k.idle * 7
+                k.idle = 0
+            }
+            drive.spectate()
+            k.camX = k.x; k.camBack = 9.2
+            return
+        }
         const fast = drive.clamp(k.speed / 55, 0, 1)
         const t = k.clock
         k.shake += ((drive.emergency && drive.playing ? 1 : 0) - k.shake) * Math.min(1, dt * (drive.emergency ? 10 : 2.5))
@@ -450,10 +531,8 @@ FocusScope {
                 return
             k.orbit += k.idle * 7
             k.idle = 0
-            // The Taklacı Güvercin hangs from its ramp's ceiling: sway in front of
-            // the ramp and look up at the car.
-            const a = (drive.flying ? 180 + 38 * Math.sin(k.orbit * 0.035) : k.orbit + 205) * Math.PI / 180
-            const radius = drive.flying ? 19 : 8.4, height = drive.flying ? 5.5 : 2.9, aim = drive.flying ? 10.5 : 1.5
+            const a = (k.orbit + 205) * Math.PI / 180
+            const radius = 8.4, height = 2.9, aim = 1.5
             driveCamera.position = Qt.vector3d(k.x + Math.sin(a) * radius, height, Math.cos(a) * radius)
             const dx = k.x - driveCamera.position.x, dz = -driveCamera.position.z, dy = aim - height
             driveCamera.eulerRotation = Qt.vector3d(Math.atan2(dy, Math.hypot(dx, dz)) * 57.2958, Math.atan2(-dx, -dz) * 57.2958, 0)
@@ -474,15 +553,51 @@ FocusScope {
                                            drive.clamp(-k.lateral * 0.05, -0.5, 0.5))
         driveCamera.fieldOfView = 54 + fast * 8
     }
+    function aimCamera(x, y, z, aimX, aimY, aimZ, roll, fov) {
+        const dx = aimX - x, dy = aimY - y, dz = aimZ - z
+        driveCamera.position = Qt.vector3d(x, y, z)
+        driveCamera.eulerRotation = Qt.vector3d(Math.atan2(dy, Math.hypot(dx, dz)) * 57.2958, Math.atan2(-dx, -dz) * 57.2958, roll)
+        driveCamera.fieldOfView = fov
+    }
+    // The roadside camera: wide, on the ramp as well as the car while they are apart;
+    // zoomed in on the car alone by the time it reaches the ramp.
+    function spectate() {
+        const k = drive.kin, s = drive.spectator
+        const x = s.x, y = s.y + 0.4 * Math.sin(k.orbit * 0.03), z = s.z + 1.5 * Math.sin(k.orbit * 0.02)
+        const u = drive.clamp(-ego.z / drive.rampRun, 0, 1), apart = u * u * (3 - 2 * u)
+        const ramp = 0.38 * apart, fov = s.fov - 14 * (1 - apart)
+        k.spectatorAt = [x, y, z, fov]
+        // Aimed high enough to keep the waiting car below the start card.
+        drive.aimCamera(x, y, z, k.x, ego.y + (10 - ego.y) * ramp, ego.z + (2 - ego.z) * ramp, 0, fov)
+    }
+    // After the release: from the roadside to the normal view, which it reaches
+    // exactly as the car lands, keeping the falling car in frame on the way.
+    function updateLandingCamera() {
+        const k = drive.kin
+        if (!drive.flying || k.intro < 0)
+            return
+        const f = drive.clamp(k.intro / drive.introTime, 0, 1), w = f * f * (3 - 2 * f)
+        const blend = (from, to) => from + (to - from) * w
+        // The aim leaves the car last, so it stays in frame while the camera swings round.
+        const look = (from, to) => from + (to - from) * w * w * w
+        const p = driveCamera.position, e = driveCamera.eulerRotation, from = k.spectatorAt
+        const pitch = e.x * Math.PI / 180, yaw = e.y * Math.PI / 180, reach = 25
+        // It comes in from the side last, rather than close past the falling car.
+        drive.aimCamera(from[0] + (p.x - from[0]) * w * w, blend(from[1], p.y), blend(from[2], p.z),
+                        look(k.x, p.x - Math.sin(yaw) * Math.cos(pitch) * reach),
+                        look(ego.altitude + ego.height / 2, p.y + Math.sin(pitch) * reach),
+                        look(ego.z, p.z - Math.cos(yaw) * Math.cos(pitch) * reach),
+                        e.z * w, blend(from[3], driveCamera.fieldOfView))
+    }
     function updateOverlays() {
         const k = drive.kin
-        const show = drive.overlays && drive.playing && drive.mode !== "off" && !(drive.flying && k.renderAlt > 1)
+        const show = drive.playing && !drive.launching && drive.mode !== "off" && !(drive.flying && k.renderAlt > 1)
         const leadCar = k.lead >= 0 ? traffic.objectAt(k.lead) : null
         const leadSlot = k.lead >= 0 ? k.slots[k.lead] : null
         const gap = leadSlot ? Math.max(0, leadSlot.z - k.distance - (leadCar.length + ego.length) / 2) : 1e9
         const want = Math.max(6, k.speed * Number(drive.game.headwayMs || 1800) / 1000)
         const span = Math.max(1.5, Math.min(want, gap, 90))
-        corridor.visible = show
+        corridor.visible = show && garage.corridor
         corridor.x = k.x
         corridor.eulerRotation = Qt.vector3d(0, k.yaw, 0)
         corridorCarpet.z = -(2.35 + span / 2)
@@ -496,7 +611,7 @@ FocusScope {
         const closing = leadSlot ? Math.round((k.speed - leadSlot.speed) * 3.6) : 0
         radar.relativeText = !leadSlot ? "—" : closing === 0 ? "0 km/sa" : (closing > 0 ? "−" : "+") + Math.abs(closing) + " km/sa"
 
-        if (!show || !leadCar || gap > 140) {
+        if (!show || !garage.bracket || !leadCar || gap > 140) {
             target.visible = false
             return
         }
@@ -516,7 +631,7 @@ FocusScope {
     onGameChanged: { drive.sample(); if (!playing) drive.settle() }
     onPlayingChanged: {
         drive.settle()
-        if (playing && drive.flying && Number(game.elapsed || 0) < 0.3)
+        if (playing && drive.flying && !Boolean(game.launching) && Number(game.elapsed || 0) < 0.3)
             drive.kin.intro = 0
         if (playing) Qt.callLater(focusDriving)
         else if (studio) studio.releaseGameKeys()
@@ -526,7 +641,15 @@ FocusScope {
         if (!visible && studio) studio.releaseGameKeys()
     }
     onHoodCameraChanged: drive.settle()
-    onOverlaysChanged: drive.settle()
+    // It lets go of the ceiling as the plant starts, with the usual render delay.
+    onLaunchingChanged: {
+        const k = drive.kin
+        if (!launching && Boolean(game.running) && k.buffer.length) {
+            k.intro = 0
+            k.renderT = k.buffer[k.buffer.length - 1].t - drive.renderDelay
+            k.leadAverage = drive.renderDelay
+        }
+    }
     Timer { id: settleTimer; interval: 2500; running: true; onTriggered: drive.settling = false }
     Component.onCompleted: {
         const slots = []
@@ -610,6 +733,78 @@ FocusScope {
             onClicked: garage.car = tile.car.id
         }
     }
+    // Clickable like the car tiles: a MouseArea takes no keyboard focus, so
+    // pressing these while driving never pulls focus off the road and pauses.
+    component RunButton: Rectangle {
+        id: run
+        property string caption
+        property color ink: "#63dec2"
+        property bool pause: false
+        signal activated()
+        implicitWidth: runRow.implicitWidth + 28; implicitHeight: 34
+        radius: 8
+        color: !run.enabled ? "#18232e" : runArea.containsMouse ? Qt.lighter(run.ink, 1.12) : run.ink
+        Behavior on color { ColorAnimation { duration: 100 } }
+        Accessible.role: Accessible.Button
+        Accessible.name: run.caption
+        Accessible.onPressAction: run.activated()
+        Row {
+            id: runRow
+            anchors.centerIn: parent; spacing: 8
+            Item {
+                width: 11; height: 12; anchors.verticalCenter: parent.verticalCenter
+                Rectangle { visible: run.pause; width: 4; height: 12; radius: 1; color: runText.color }
+                Rectangle { visible: run.pause; x: 7; width: 4; height: 12; radius: 1; color: runText.color }
+                Text { visible: !run.pause; anchors.centerIn: parent; text: "▶︎"; color: runText.color; font.pixelSize: 11 }
+            }
+            Copy { id: runText; text: run.caption; color: run.enabled ? "#10251f" : "#637684"; font.weight: Font.Bold; font.letterSpacing: 0.8 }
+        }
+        MouseArea {
+            id: runArea
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: run.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+            onClicked: run.activated()
+        }
+    }
+    component IndicatorSwitch: Rectangle {
+        id: toggle
+        property string caption
+        property string detail
+        property bool checked: false
+        signal toggled()
+        implicitWidth: toggleRow.implicitWidth + 22; implicitHeight: 28
+        radius: 8
+        color: toggleArea.containsMouse ? "#18303d" : "#142430"
+        border.color: toggle.checked ? "#3a7f72" : "#27404f"
+        Accessible.role: Accessible.CheckBox
+        Accessible.name: toggle.caption
+        Accessible.description: toggle.detail
+        Accessible.checkable: true
+        Accessible.checked: toggle.checked
+        Accessible.onToggleAction: toggle.toggled()
+        Row {
+            id: toggleRow
+            anchors.centerIn: parent; spacing: 8
+            Rectangle {
+                width: 22; height: 12; radius: 6; anchors.verticalCenter: parent.verticalCenter
+                color: toggle.checked ? "#3fbfa6" : "#2a3d4b"
+                Rectangle {
+                    x: toggle.checked ? 12 : 2; y: 2; width: 8; height: 8; radius: 4
+                    color: toggle.checked ? "#eafff9" : "#8aa2b1"
+                    Behavior on x { NumberAnimation { duration: 90 } }
+                }
+            }
+            Copy { text: toggle.caption; color: toggle.checked ? "#e5edf3" : "#8aa5b6"; font.pixelSize: 11; font.weight: Font.DemiBold; anchors.verticalCenter: parent.verticalCenter }
+        }
+        MouseArea {
+            id: toggleArea
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: toggle.toggled()
+        }
+    }
 
     ColumnLayout {
         anchors.fill: parent; spacing: 12
@@ -653,7 +848,8 @@ FocusScope {
                 }
             }
             Item { Layout.fillWidth: true }
-            Copy { text: "AYARLAR SAATTEN"; color: "#748f9e"; font.pixelSize: 10; font.letterSpacing: 1 }
+            // The flying car's two gauges fill a narrow row; a wider one would widen the whole page.
+            Copy { visible: !(viewport.compact && drive.flying); text: "AYARLAR SAATTEN"; color: "#748f9e"; font.pixelSize: 10; font.letterSpacing: 1 }
         }
         Rectangle {
             id: viewport
@@ -669,14 +865,14 @@ FocusScope {
             Keys.onPressed: function(event) {
                 let key = drive.keyName(event.key)
                 if (key) { drive.studio.gameKey(key, true, event.isAutoRepeat); event.accepted = true }
-                else if (event.key === Qt.Key_Space || event.key === Qt.Key_Escape) {
+                else if (event.key === Qt.Key_Escape) {
                     if (!event.isAutoRepeat) drive.studio.pauseGame()
                     event.accepted = true
                 } else if (event.key === Qt.Key_C) {
                     if (!event.isAutoRepeat) drive.hoodCamera = !drive.hoodCamera
                     event.accepted = true
                 } else if (event.key === Qt.Key_V) {
-                    if (!event.isAutoRepeat) drive.overlays = !drive.overlays
+                    if (!event.isAutoRepeat) garage.corridor = garage.bracket = !(garage.corridor || garage.bracket)
                     event.accepted = true
                 } else if (event.key === Qt.Key_M) {
                     if (!event.isAutoRepeat) drive.soundOn = !drive.soundOn
@@ -726,6 +922,7 @@ FocusScope {
                 }
                 PerspectiveCamera {
                     id: driveCamera
+                    objectName: "driveCamera"
                     position: Qt.vector3d(0, 3.1, 8.6)
                     eulerRotation.x: -11
                     clipNear: 0.25; clipFar: 1600; fieldOfView: 56
@@ -950,6 +1147,7 @@ FocusScope {
                 }
                 Node {
                     id: corridor
+                    objectName: "followCorridor"
                     visible: false
                     Model {
                         id: corridorCarpet
@@ -1156,7 +1354,7 @@ FocusScope {
                 anchors.left: parent.left; anchors.bottom: parent.bottom; anchors.margins: 14
                 transformOrigin: Item.BottomLeft
                 scale: viewport.ui
-                speedKmh: Number(drive.game.egoKmh || 0)
+                speedKmh: drive.launching ? drive.launchKmh : Number(drive.game.egoKmh || 0)
                 targetKmh: Number(drive.game.targetKmh || 0)
                 accEnabled: Boolean(drive.game.accEnabled)
                 warning: drive.warning
@@ -1167,6 +1365,8 @@ FocusScope {
             }
             DriveRadar {
                 id: radar
+                // The plant has not started on the ramp: nothing true to show yet.
+                visible: garage.sensors && !drive.launching
                 anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.margins: 14
                 transformOrigin: Item.BottomRight
                 scale: viewport.compact ? 0.62 : viewport.ui
@@ -1237,31 +1437,72 @@ FocusScope {
                     Text {
                         objectName: "watchStartHint"
                         width: parent.width; wrapMode: Text.WordWrap; color: "#c4d6e0"; font.pixelSize: 13; lineHeight: 1.4
-                        text: !drive.available ? "Üstteki Bağlan düğmesiyle ADASLab yüklü saati bağla. Ardından saatte BAŞLAT’a dokun."
-                              : drive.flying && drive.choosing ? "Taklacı Güvercin, tanıtımdaki J rampanın tavanında ters bekliyor. Saatte BAŞLAT’a dokun; iticileriyle takla atarak yola iner."
-                              : "Modu ve ACC ayarını saatten seç. Saat ekranındaki BAŞLAT’a dokun; oyun burada başlayacak."
+                        text: !drive.available ? "Üstteki Bağlan düğmesiyle ADASLab yüklü saati bağla. Ardından BAŞLAT’a burada veya saatte dokun."
+                              : drive.flying && drive.choosing ? "Taklacı Güvercin, tanıtımdaki J rampanın önünde bekliyor. BAŞLAT’a burada veya saatte dokun; rampaya tırmanır, tavanda durur ve iticileriyle takla atarak yola iner."
+                              : "Modu ve ACC ayarını saatten seç. BAŞLAT’a burada veya saatte dokun."
+                    }
+                    RunButton {
+                        objectName: "driveStartButton"
+                        visible: drive.available
+                        enabled: !drive.busy
+                        caption: drive.game.status === "paused" ? "DEVAM ET" : drive.finished ? "YENİ SÜRÜŞ" : "BAŞLAT"
+                        onActivated: if (enabled) drive.studio.requestGameStart()
                     }
                     Flow {
                         width: parent.width; spacing: 14
                         Keycap { keys: "W ↑"; label: "Gaz" }
-                        Keycap { keys: "S ↓"; label: "Fren" }
+                        Keycap { keys: "S ↓ ␣"; label: "Fren" }
                         Keycap { keys: "A D"; label: drive.flying ? "Taklayla şerit" : "Şerit" }
                         Keycap { keys: "R F"; label: "Yüksel / alçal"; visible: drive.flying }
                         Keycap { keys: "C"; label: drive.hoodCamera ? "Kaput kamerası" : "Takip kamerası" }
+                        Keycap { keys: "Esc"; label: "Duraklat" }
                     }
                 }
             }
         }
         RowLayout {
+            objectName: "indicatorSwitches"
+            Layout.fillWidth: true; spacing: 8
+            Copy { text: "GÖSTERGELER"; color: "#748f9e"; font.pixelSize: 10; font.letterSpacing: 1; Layout.rightMargin: 4 }
+            IndicatorSwitch {
+                objectName: "indicatorCorridor"
+                caption: "Takip koridoru"; detail: "Yoldaki takip mesafesi şeridi"
+                checked: garage.corridor
+                onToggled: garage.corridor = !garage.corridor
+            }
+            IndicatorSwitch {
+                objectName: "indicatorBracket"
+                caption: "Araç çerçevesi"; detail: "Öndeki aracın çerçevesi, mesafesi ve TTC"
+                checked: garage.bracket
+                onToggled: garage.bracket = !garage.bracket
+            }
+            IndicatorSwitch {
+                objectName: "indicatorSensors"
+                caption: "Sensör görünümü"; detail: "Sağ alttaki kuşbakışı araç haritası"
+                checked: garage.sensors
+                onToggled: garage.sensors = !garage.sensors
+            }
+            // Otherwise the first two switches look broken: ADAS off draws neither.
+            Copy { Layout.fillWidth: true; Layout.leftMargin: 4; text: drive.mode === "off" ? "ADAS kapalıyken yol çizimleri görünmez" : ""; color: "#6d8b9d"; font.pixelSize: 11 }
+            // As tall as the switches, so the 3D view keeps its size when this hides.
+            RunButton {
+                objectName: "drivePauseButton"
+                visible: drive.playing
+                caption: "DURAKLAT"; pause: true; ink: "#ffc35c"
+                implicitHeight: 28
+                onActivated: drive.studio.pauseGame()
+            }
+        }
+        RowLayout {
             Layout.fillWidth: true; spacing: 16
             Keycap { keys: "WASD"; label: "Sür" }
-            Keycap { keys: "␣"; label: "Duraklat" }
+            Keycap { keys: "␣"; label: "Fren" }
+            Keycap { keys: "Esc"; label: "Duraklat" }
             Keycap { keys: "C"; label: "Kamera"; active: drive.hoodCamera }
-            Keycap { keys: "V"; label: "ADAS çizimi"; active: drive.overlays }
+            Keycap { keys: "V"; label: "Yol çizimleri"; active: garage.corridor || garage.bracket }
             Keycap { keys: "M"; label: drive.soundOn ? "Ses açık" : "Ses kapalı"; active: drive.soundOn }
             Keycap { keys: "R F"; label: "Uçuş katmanı"; visible: drive.flying; active: Number(drive.game.layer || 0) > 0 }
             Item { Layout.fillWidth: true }
-            Copy { text: "Başlat / Duraklat ve ADAS ayarları: saat"; color: "#6d8b9d"; font.pixelSize: 11 }
         }
     }
 

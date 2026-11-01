@@ -30,6 +30,17 @@ class GameTests(unittest.TestCase):
         inputs.release()
         self.assertEqual(inputs.sample(), dict(gas=False, brake=False, lane=0, layer=0))
 
+    def test_space_is_a_brake_alias_with_independent_release(self):
+        inputs = DriverInput()
+        inputs.key('space', True)
+        self.assertEqual(inputs.sample(), dict(gas=False, brake=True, lane=0, layer=0))
+        inputs.key('s', True); inputs.key('space', False)
+        self.assertTrue(inputs.sample()['brake'])
+        inputs.key('space', True); inputs.key('s', False)
+        self.assertTrue(inputs.sample()['brake'])
+        inputs.key('space', False)
+        self.assertFalse(inputs.sample()['brake'])
+
     def test_flight_keys_queue_layers_and_repeat_does_not_climb(self):
         inputs = DriverInput()
         inputs.key('r', True); inputs.key('r', True, True); inputs.key('r', False); inputs.key('f', True)
@@ -353,6 +364,37 @@ class GameTests(unittest.TestCase):
         with self.assertRaises(ProtocolError):runner.run()
         self.assertEqual(device.calls[-2:], ['H:0', 'PAUSE'])
         self.assertEqual(runner.world.tick, 0)
+
+    def test_flier_launch_sends_no_samples_and_ignores_keys_pressed_on_the_ramp(self):
+        stop=threading.Event()
+        class Device:
+            current=dict(app='ADASLab', version=2)
+            def __init__(self):self.calls=[]
+            def runtime(self, command, **kwargs):
+                self.calls.append(command)
+                sample=command.startswith('T:')
+                if sample:stop.set()
+                return dict(app='ADASLab', id=3, state=dict(ms=int(command.split(':')[1]) if sample else 0, fresh=True, grun=True, a=0, gmode=0))
+        device, inputs=Device(), DriverInput()
+        runner=GameRunner(device, GameConfig(vehicle='roadster'), inputs, stop, lambda s:None, configure=False)
+        self.assertGreater(runner.launch, 0)
+        runner.launch=.15
+        inputs.key('a', True)
+        runner.run()
+        first=next(i for i, command in enumerate(device.calls) if command.startswith('T:'))
+        self.assertLess(device.calls.index('H:1'), device.calls.index('J'))
+        self.assertLess(device.calls.index('J'), first)
+        self.assertEqual(runner.world.target_lane, 1)
+
+    def test_only_a_new_flier_drive_climbs_the_ramp(self):
+        class Device:
+            current=dict(app='ADASLab', version=2)
+        make=lambda **kwargs:GameRunner(Device(), GameConfig(**kwargs), DriverInput(), threading.Event(), lambda s:None)
+        self.assertEqual(make().launch, 0)
+        self.assertEqual(make(vehicle='model3').launch, 0)
+        world=TrafficWorld(GameConfig(vehicle='roadster'))
+        world.tick=50
+        self.assertEqual(GameRunner(Device(), world.config, DriverInput(), threading.Event(), lambda s:None, world).launch, 0)
 
     def test_card_pause_stops_without_advancing_world(self):
         class Device:

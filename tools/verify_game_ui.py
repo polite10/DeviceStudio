@@ -9,12 +9,13 @@ import argparse
 import json
 from pathlib import Path
 import sys
+import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from PySide6.QtCore import QObject, QPoint, QEvent, Qt, qInstallMessageHandler
+from PySide6.QtCore import QObject, QPoint, QPointF, QEvent, QSettings, Qt, qInstallMessageHandler
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtQuick import QQuickItem
 from PySide6.QtTest import QTest
@@ -33,6 +34,10 @@ def main():
     if args.backend == 'hardware' and not args.port:
         parser.error('--port is required with --backend hardware')
     args.capture_dir.mkdir(parents=True, exist_ok=True)
+    # Known defaults for the remembered car and drawings; never the user's own.
+    settings_dir = tempfile.TemporaryDirectory()
+    QSettings.setDefaultFormat(QSettings.Format.IniFormat)
+    QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, settings_dir.name)
     app = QApplication(['embedded-3d-qa'])
     errors = []
     def message(kind, context, text):
@@ -72,6 +77,13 @@ def main():
 
     def item(name):
         result = window.findChild(QObject, name)
+        # Repeater delegates are only reachable through the visual tree.
+        pending = [window.contentItem()]
+        while result is None and pending:
+            current = pending.pop()
+            if current.objectName() == name:
+                result = current
+            pending.extend(current.childItems())
         if result is None:
             raise AssertionError('Missing QML object: ' + name)
         return result
@@ -120,9 +132,20 @@ def main():
         wait(lambda: item('driveViewport').property('activeFocus'), '3D view did not receive keyboard focus')
 
     def pause():
-        QTest.keyClick(window, Qt.Key.Key_Space)
+        QTest.keyClick(window, Qt.Key.Key_Escape)
         idle()
-        check(not controller.gameState['running'], 'Space pauses the worker and releases pedals')
+        check(not controller.gameState['running'], 'Esc pauses the worker and releases pedals')
+
+    def click(name):
+        control = item(name)
+        check(control.property('visible'), 'Control is on screen: ' + name)
+        point = control.mapToScene(QPointF(control.width() / 2, control.height() / 2))
+        QTest.mouseClick(window, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                         QPoint(round(point.x()), round(point.y())))
+        pump(.05)
+
+    def watch_running():
+        return controller._device.current['state']['grun']
 
     def configure(mode, acc=False):
         command(f'G:{mode}:{int(acc)}:3000:2200')
@@ -146,6 +169,10 @@ def main():
         check(controller._game3d_process is None and controller._game3d_bridge is None, 'No external Godot window or TCP renderer is opened')
         check(len(app.topLevelWindows()) == 1, 'There is a single Studio application window')
         configure(0)
+        # The timed pedal checks need the Model 3's instant torque: the default
+        # Şahin spends its first half second of throttle on a gear change.
+        click('car_model3')
+        check(controller.gameState['vehicle'] == 'model3', 'Car picker selects the Model 3')
         capture('studio-3d-ready')
         viewport = item('driveViewport')
         start()
@@ -184,6 +211,12 @@ def main():
         pump(.3)
         QTest.keyRelease(window, Qt.Key.Key_S)
         check(controller.gameState['egoKmh'] < speed - 1, 'S brakes through live QML input')
+        pump(.3)
+        speed = controller.gameState['egoKmh']
+        QTest.keyPress(window, Qt.Key.Key_Space)
+        pump(.5)
+        check(controller.gameState['running'] and controller.gameState['egoKmh'] < speed - 1, 'Space brakes and does not pause')
+        QTest.keyRelease(window, Qt.Key.Key_Space)
         QTest.keyClick(window, Qt.Key.Key_A)
         wait(lambda: controller.gameState['targetLane'] == 0, 'A did not steer left')
         QTest.keyPress(window, Qt.Key.Key_D)
@@ -199,8 +232,54 @@ def main():
         check(item('drive3DView').property('hoodCamera') != old_camera, 'C switches the 3D camera in the same window')
         QTest.keyClick(window, Qt.Key.Key_C)
         capture('studio-3d-driving')
+        # The drawings in front of the car are chosen one by one, mid-drive.
+        wait(lambda: item('leadTarget').property('visible') and item('followCorridor').property('visible'), 'Drawings are not showing')
+        click('indicatorCorridor')
+        pump(.1)
+        check(not item('followCorridor').property('visible') and item('leadTarget').property('visible'), 'Corridor switch hides only the corridor')
+        click('indicatorBracket')
+        pump(.1)
+        check(not item('leadTarget').property('visible'), 'Bracket switch hides the lead vehicle bracket')
+        check(item('driveRadar').property('visible'), 'Sensor view has its own switch')
+        click('indicatorSensors')
+        pump(.1)
+        check(not item('driveRadar').property('visible'), 'Sensor switch hides the sensor view')
+        check(viewport.property('activeFocus') and controller.gameState['running'], 'Switches neither take keyboard focus nor pause the drive')
+        capture('studio-3d-drawings-off')
+        pump(.6)  # Settings writes are delayed.
+        check([QSettings().value('drive/' + key, type=bool) for key in ('corridor', 'bracket', 'sensors')] == [False] * 3,
+              'Drawing choices are remembered across sessions')
+        QTest.keyClick(window, Qt.Key.Key_V)
+        pump(.1)
+        check(item('followCorridor').property('visible') and item('leadTarget').property('visible'), 'V brings both road drawings back')
+        QTest.keyClick(window, Qt.Key.Key_V)
+        pump(.1)
+        check(not item('followCorridor').property('visible') and not item('leadTarget').property('visible'), 'V hides both road drawings')
+        for name in ('indicatorCorridor', 'indicatorBracket', 'indicatorSensors'):
+            click(name)
+        pump(.1)
+        check(item('followCorridor').property('visible') and item('driveRadar').property('visible'), 'Switches turn the drawings back on')
+        # Studio and watch each start and pause, and always agree.
+        check(watch_running(), 'Watch shows the drive as running')
+        click('drivePauseButton')
+        idle()
+        pump(.05)
+        check(controller.gameState['status'] == 'paused' and not watch_running(), 'Studio DURAKLAT pauses Studio and the watch')
+        elapsed = controller.gameState['elapsed']
+        check(controller.state['statusMessage'] == '', 'Pause leaves no stale status message')
+        check(item('driveStartButton').property('caption') == 'DEVAM ET', 'Start button offers to continue a paused drive')
+        capture('studio-3d-paused')
+        click('driveStartButton')
+        # The watch hears H:1 only after the worker's RESET and V replies.
+        wait(lambda: controller.gameState['running'] and controller.gameState['elapsed'] > elapsed and watch_running(), 'Studio BAŞLAT did not resume')
+        check(True, 'Studio BAŞLAT resumes the same road and the watch follows')
+        wait(lambda: viewport.property('activeFocus'), 'Studio BAŞLAT did not hand the keyboard to the road')
+        check(True, 'Studio BAŞLAT hands the keyboard to the road')
         pause()
+        check(not watch_running(), 'Esc pause shows on the watch')
+        elapsed = controller.gameState['elapsed']
         start()
+        check(controller.gameState['elapsed'] >= elapsed, 'Watch BAŞLAT resumes a drive paused in Studio')
         QTest.keyPress(window, Qt.Key.Key_W)
         pump(.15)
         sink = QQuickItem(window.contentItem())
@@ -225,6 +304,11 @@ def main():
             controller._game_runner.emit = pause_from_card
             idle()
             check(controller.gameState['status'] == 'paused', 'Actual watch pause touch stops the embedded game')
+            elapsed = controller.gameState['elapsed']
+            click('driveStartButton')
+            wait(lambda: controller.gameState['running'] and controller.gameState['elapsed'] > elapsed and watch_running(), 'Studio BAŞLAT did not resume after a watch pause')
+            check(True, 'Studio BAŞLAT resumes a drive paused on the watch')
+            pause()
         else:
             # H cannot be sent concurrently with the serial worker; card pause
             # itself is covered by the compiled touch-handler test above.
@@ -247,7 +331,9 @@ def main():
         start()
         QTest.keyPress(window, Qt.Key.Key_W)
         wait(lambda: controller.gameState['aeb'], 'C firmware did not engage AEB', 22)
-        check(controller.gameState['accelMps2'] < -7, 'AEB overrides a held gas key with real MCU emergency braking')
+        # Brake pressure builds over 0.12 s after the firmware's request.
+        wait(lambda: controller.gameState['accelMps2'] < -7, 'AEB did not brake against the held gas key', 2)
+        check(True, 'AEB overrides a held gas key with real MCU emergency braking')
         check(item('clusterAeb').property('lit') and item('driveWarning').property('text') == 'AEB · ACİL FREN',
               'AEB telltale and banner follow the firmware emergency state')
         capture('studio-3d-aeb')
@@ -258,11 +344,57 @@ def main():
         pump(.2)
         start()
         check(viewport.property('activeFocus'), 'Minimum window size retains keyboard focus')
-        for name in ('driveSpeed', 'watchMode', 'watchTarget', 'watchHeadway'):
+        for name in ('driveSpeed', 'watchMode', 'watchTarget', 'watchHeadway', 'drivePauseButton', 'indicatorSensors'):
             obj = item(name)
             point = obj.mapToScene(obj.boundingRect().topLeft())
             check(83 <= point.y() < window.height() - 38, 'Compact layout keeps control visible: ' + name)
+            check(point.x() + obj.width() <= window.width(), 'Compact layout keeps control inside the window: ' + name)
         capture('studio-3d-compact')
+        pause()
+        obj = item('driveStartButton')
+        point = obj.mapToScene(obj.boundingRect().bottomRight())
+        check(point.y() < item('driveViewport').mapToScene(QPointF(0, item('driveViewport').height())).y() and point.x() <= window.width(),
+              'Compact layout keeps the start button inside the road view')
+        capture('studio-3d-compact-paused')
+        # The flying car adds two gauges: everything must still fit this window.
+        controller._game.update(status='ready')
+        controller._publish()
+        pump(.1)
+        click('car_roadster')
+        ego, camera = item('egoVehicle3D'), item('driveCamera')
+        click('driveStartButton')
+        wait(lambda: controller.gameState['launching'], 'The flying car did not start with its ramp climb')
+        pump(.3)
+        check(ego.property('z') > -24 and controller.gameState['elapsed'] == 0, 'The car moves up its ramp while the plant waits')
+        QTest.keyClick(window, Qt.Key.Key_Escape)
+        idle()
+        check(controller.gameState['status'] == 'ready' and not watch_running(), 'Esc on the ramp stops the launch, on the watch too')
+        pump(.2)
+        check(ego.property('z') == -24 and ego.property('y') == 0, 'The car goes back to wait before the ramp')
+        launch, clock = [], item('driveClock')
+        def launch_frame():
+            kin = item('drive3DView').property('kin')
+            position = camera.property('position')
+            launch.append(dict(launching=controller.gameState['launching'], intro=kin.property('intro').toNumber(), car=(ego.property('y'), ego.property('z')),
+                               altitude=ego.property('altitude'), camera=(position.x(), position.y(), position.z())))
+        clock.triggered.connect(launch_frame)
+        click('driveStartButton')
+        wait(lambda: controller.gameState['running'] and controller.gameState['elapsed'] > 3.5, 'Studio BAŞLAT did not start the flying car', 12)
+        clock.triggered.disconnect(launch_frame)
+        climb = [frame for frame in launch if frame['launching']]
+        check(climb and all(frame['camera'][0] > 15 for frame in climb), 'The climb is filmed from far off the road, never from inside the car')
+        check(abs(climb[-1]['car'][0] - item('drive3DView').property('rampCeiling')) < .01 and abs(climb[-1]['car'][1]) < .01, 'The car stops on the ceiling before the release')
+        falling = [frame for frame in launch if not frame['launching'] and frame['intro'] >= 0]
+        check(falling and falling[0]['altitude'] > 7, 'The drop starts from the ceiling, after the climb')
+        landed = next(frame for frame in launch[launch.index(falling[0]):] if frame['intro'] < 0)
+        check(landed['altitude'] < .05 and abs(landed['camera'][0]) < .3 and abs(landed['camera'][1] - 3.3) < .3 and abs(landed['camera'][2] - 9.2) < .4,
+              'The camera reaches the normal view exactly as the car lands: ' + str(landed))
+        steps = [max(abs(a - b) for a, b in zip(one['camera'], two['camera'])) for one, two in zip(launch, launch[1:])]
+        check(max(steps) < 1, 'The camera never jumps from the start to the landing: ' + str(round(max(steps), 3)))
+        for name in ('airGauge', 'driveRadar', 'drivePauseButton', 'indicatorSensors'):
+            obj = item(name)
+            check(obj.mapToScene(QPointF(obj.width(), 0)).x() <= window.width(), 'Flying car still fits the narrowest window: ' + name)
+        capture('studio-3d-compact-flying')
         pause()
         check(not errors, 'No QML, model-loading, shader or binding errors: ' + str(errors))
         check(window.rendererInterface().graphicsApi().name != 'Software', '3D scene uses native GPU rendering')

@@ -245,7 +245,7 @@ class GameConfig:
 
 class DriverInput:
     """Physical aliases retain independent ownership; auto-repeat never steers or climbs."""
-    allowed = {'w', 'up', 's', 'down', 'a', 'left', 'd', 'right', 'r', 'f'}
+    allowed = {'w', 'up', 's', 'down', 'space', 'a', 'left', 'd', 'right', 'r', 'f'}
 
     def __init__(self):
         self._lock = threading.Lock()
@@ -270,7 +270,7 @@ class DriverInput:
         with self._lock:
             lane = self._lanes.popleft() if self._lanes else 0
             layer = self._layers.popleft() if self._layers else 0
-            return dict(gas=bool(self._held & {'w', 'up'}), brake=bool(self._held & {'s', 'down'}), lane=lane, layer=layer)
+            return dict(gas=bool(self._held & {'w', 'up'}), brake=bool(self._held & {'s', 'down', 'space'}), lane=lane, layer=layer)
 
     def release(self):
         with self._lock:
@@ -949,11 +949,17 @@ class TrafficWorld:
                     reactionMs=round(sum(self.reactions) / len(self.reactions)) if self.reactions else -1.)
 
 
+# The flier's launch before a new drive: up the ramp (Drive3DView draws it), then a
+# moment stopped on the ceiling. The plant starts when it lets go.
+LAUNCH_SECONDS = 4.6
+
+
 class GameRunner:
     def __init__(self, device, config, inputs, stop, emit, world=None, *, configure=True):
         self.device, self.config, self.inputs, self.stop, self.emit = device, config, inputs, stop, emit
         self.world = world or TrafficWorld(config)
         self.configure = configure
+        self.launch = LAUNCH_SECONDS if self.world.flight and not self.world.tick else 0.
         self.rows = deque(maxlen=12000)
         self.last_response = None
         self.overruns = 0
@@ -976,6 +982,8 @@ class GameRunner:
             if calibrated and calibrated != 'unsupported_command':
                 raise ProtocolError('Kart araç fren ayarını kabul etmedi.')
             self.device.runtime('H:1')
+            if not self._climb():
+                return self.last_response
             while not self.stop.is_set() and not self.world.finished:
                 started = time.monotonic()
                 pedals = self.inputs.sample()
@@ -1013,3 +1021,16 @@ class GameRunner:
                 self.device.runtime('PAUSE', timeout=.5)
             except Exception:
                 pass
+
+    def _climb(self):
+        """Hold the plant during the launch. Traffic waits and the card has no samples
+        yet, which it allows until the first one; it can still pause the run."""
+        end = time.monotonic() + self.launch
+        while time.monotonic() < end:
+            if self.stop.wait(.1):
+                return False
+            self.inputs.sample()  # a lane key pressed on the ramp must not fire on landing
+            self.last_response = self.device.runtime('J', timeout=.6)
+            if not self.last_response.get('state', {}).get('grun'):
+                return False
+        return True
