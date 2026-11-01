@@ -136,7 +136,7 @@ ApplicationWindow {
                 Text { text: "ÇALIŞMA ALANI"; color: "#647d8f"; font.family: window.font.family; font.pixelSize: 11; font.letterSpacing: 1.5; Layout.bottomMargin: 8 }
                 Repeater {
                     model: [
-                        {page:"game",title:"ADASLab",subtitle:"Sürüş · saatten başlat",symbol:"A"},
+                        {page:"game",title:"ADASLab",subtitle:"3B sürüş · WASD",symbol:"A"},
                         {page:"firmware",title:"Firmware",subtitle:"Yükleme ve kurtarma",symbol:"F"},
                         {page:"duello",title:"Düello",subtitle:"Karakter kontrolü",symbol:"D"},
                         {page:"console",title:"Komut konsolu",subtitle:"Cihazla iletişim",symbol:">"}
@@ -193,7 +193,7 @@ ApplicationWindow {
                         objectName: "pageTitleColumn"
                         Layout.fillWidth: true; Layout.fillHeight: true; Layout.maximumWidth: 100000
                         Text { objectName: "pageTitle"; y: window.width > 1210 ? 17 : 27; text: window.pageTitle(); color: window.textColor; font.family: window.font.family; font.pixelSize: 23; font.weight: Font.DemiBold }
-                        Text { y: 50; visible: window.width > 1210; text: window.s.page === "game" ? "Saatten BASLAT’a dokunun, WASD veya yön tuşlarıyla sürün." : window.s.page === "firmware" ? "Firmware paketleri ve bootloader yönetimi." : window.s.page === "duello" ? "Kart üzerindeki karakteri gerçek zamanlı yönetin." : "Uygulama komutları ve cihazın JSON durumu."; color: window.mutedColor; font.family: window.font.family; font.pixelSize: 11 }
+                        Text { y: 50; visible: window.width > 1210; text: window.s.page === "game" ? "BAŞLAT’a burada veya saatte dokunun, WASD veya yön tuşlarıyla sürün." : window.s.page === "firmware" ? "Firmware paketleri ve bootloader yönetimi." : window.s.page === "duello" ? "Kart üzerindeki karakteri gerçek zamanlı yönetin." : "Uygulama komutları ve cihazın JSON durumu."; color: window.mutedColor; font.family: window.font.family; font.pixelSize: 11 }
                     }
                     SelectBox {
                         id: portBox

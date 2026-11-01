@@ -22,7 +22,7 @@ import serial.tools.list_ports
 from .connection import Device
 from .protocol import Firmware, ProtocolError
 from .adas_sim import Config, Runner, SCENARIOS
-from .game_sim import AIR_FULL, VEHICLES, GameConfig, GameRunner, DriverInput, MODES, MODE_NAMES
+from .game_sim import AIR_FULL, LAUNCH_SECONDS, VEHICLES, GameConfig, GameRunner, DriverInput, MODES, MODE_NAMES
 from . import programmer
 from .godot_bridge import GodotBridge, find_godot
 
@@ -93,6 +93,7 @@ class StudioController(QObject):
                           egoLaneRate=0., egoLatAccel=0., egoSignal=0, egoBraking=False, vehicle='sahin', gear=0,
                           flight=False, layer=0, altitude=0., roll=0., lift=0., boost=0., retro=0., side=0.,
                           air=0., airFull=0., autoLand=False, airLow=False, landingBlocked=False,
+                          launching=False, launchSeconds=LAUNCH_SECONDS,
                           renderer3dAvailable=find_godot(ROOT) is not None,
                           renderer3dConnected=False, renderer3dMessage='3B sürüş penceresi kapalı')
         self._cancel = threading.Event()
@@ -300,7 +301,7 @@ class StudioController(QObject):
         self._state.update(connected=True, app=app, appVersion=str(response.get('version', '')),
                            connectionText='Bağlı', appState=json.dumps(response.get('state', {}), ensure_ascii=False, indent=2))
         self._game.update(connected=app == 'ADASLab', ready=app == 'ADASLab' and response.get('version', 0) >= 2)
-        self._game['hint'] = ('W / ↑ gaz · S / ↓ fren · A–D / ← → şerit · Boşluk duraklat' if self._game['ready']
+        self._game['hint'] = ('W / ↑ gaz · S / ↓ / Boşluk fren · A–D / ← → şerit · Esc duraklat' if self._game['ready']
                               else '3B sürüş için ADASLab v2 firmware’ini yükleyin.')
         if response.get('backend') == 'ARM_SIM':
             self._state['backendLabel'] = 'ARM simülasyonu · fiziksel kart kullanılmıyor'
@@ -352,7 +353,7 @@ class StudioController(QObject):
 
     def _apply_game_snapshot(self, snapshot):
         self._apply_response(snapshot['response'])
-        self._game.update(snapshot['game'], status=snapshot['status'])
+        self._game.update(snapshot['game'], status=snapshot['status'], launching=False)
         self._game['running'] = self._active_operation == 'game'
         if self._write_live and time.monotonic() - self._last_live_write >= 1:
             self._last_live_write = time.monotonic()
@@ -798,18 +799,21 @@ class StudioController(QObject):
         if not self._game['ready']:
             self._message('Oyun için ADASLab v2 firmware’ini yükleyin.', 'warning')
             return
+        self._drop_queued_starts()
         config = self._game_config()
         if self._game_world and (self._game_world.finished or self._game_world.config != config):
             self._game_world = None
         self._game_inputs.release()
         self._game_runner = GameRunner(self._device, config, self._game_inputs, self._cancel, self._emit_snapshot, self._game_world, configure=not self._game['devicePanel'])
         self._game_world = self._game_runner.world
-        self._game.update(self._game_world.snapshot({}), running=True, status='running')
+        self._game.update(self._game_world.snapshot({}), running=True, status='running', launching=self._game_runner.launch > 0)
         self._state.update(page='game', statusMessage='')
         def done(response):
             world = self._game_world
-            self._game.update(running=False, warning=False, aeb=False,
-                              status='collision' if world.collision else 'finished' if world.finished else 'paused')
+            # Stopped before the first step, e.g. on the launch ramp: nothing to resume.
+            self._game.update(running=False, warning=False, aeb=False, launching=False,
+                              status='collision' if world.collision else 'finished' if world.finished else 'paused' if world.tick else 'ready')
+            self._state['statusMessage'] = ''
             if world.finished:
                 result = dict(mode=config.mode, seed=config.seed, distance=round(world.distance), score=world.score,
                               collisions=int(world.collision), nearMisses=len(world.near_misses), interventions=world.interventions)
@@ -818,8 +822,28 @@ class StudioController(QObject):
         self._job('game', self._game_runner.run, done)
 
     @Slot()
+    def requestGameStart(self):
+        """Studio's own BAŞLAT. The watch owns the settings and may have just
+        changed them, so read the panel first, as a watch-started drive does."""
+        if self._defer_if_heartbeat(self.requestGameStart):
+            return
+        if not self._require_device(runtime=True):
+            return
+        def read(response):
+            self._panel_response(response)
+            self.startGame()
+        self._job('heartbeat', lambda: self._device.runtime('J'), read)
+
+    def _drop_queued_starts(self):
+        # A start queued behind a heartbeat must not outlive the drive it asked
+        # for, or it would restart the car when that drive pauses or ends.
+        self._deferred = deque(action for action in self._deferred
+                               if action not in (self.startGame, self.requestGameStart))
+
+    @Slot()
     def pauseGame(self):
         self._game_inputs.release()
+        self._drop_queued_starts()
         if self._active_operation == 'game':
             self.stopOperation()
 

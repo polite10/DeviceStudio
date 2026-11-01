@@ -125,6 +125,114 @@ class GameControllerTests(unittest.TestCase):
         self.wait(lambda:self.controller._worker is None)
         self.assertFalse(self.controller.gameState['running'])
         self.assertNotIn('H:1',self.device.calls)
+    def blocked_heartbeat(self):
+        """Hold the UART in a heartbeat; returns the event that lets it finish."""
+        entered=threading.Event();release=threading.Event()
+        def delayed():
+            entered.set();release.wait(2)
+            return self.device.runtime('J')
+        self.controller._job('heartbeat',delayed)
+        self.assertTrue(entered.wait(1))
+        return release
+    def test_studio_start_reads_watch_settings_and_shows_on_watch(self):
+        # The watch changed its mode after the last heartbeat. Starting on the
+        # stale value would fail the runner's mode check and drop the device.
+        self.device.mode=1;self.device.revision+=1
+        self.assertEqual(self.controller.gameState['mode'],'active')
+        self.device.calls.clear()
+        self.controller.requestGameStart();self.wait(lambda:self.controller.gameState['elapsed']>=.1)
+        self.assertEqual(self.controller.gameState['mode'],'warn')
+        self.assertEqual(self.controller.gameState['status'],'running')
+        self.assertTrue(self.device.running,'Watch must show the run started from Studio')
+        self.assertEqual(self.device.calls[0],'J')
+        self.assertLess(self.device.calls.index('RESET'),self.device.calls.index('H:1'))
+        self.assertFalse(any(c.startswith('G:') for c in self.device.calls),'Studio must not rewrite watch settings')
+    def test_studio_pause_stops_watch_and_watch_start_resumes_same_road(self):
+        self.controller.requestGameStart();self.wait(lambda:self.controller.gameState['elapsed']>=.1)
+        self.controller.pauseGame();self.wait(lambda:not self.controller.state['busy'])
+        self.assertEqual(self.controller.gameState['status'],'paused')
+        self.assertFalse(self.device.running,'Watch must show the pause made in Studio')
+        elapsed=self.controller.gameState['elapsed']
+        self.device.running=True;self.device.revision+=1
+        self.controller._heartbeat()
+        self.wait(lambda:self.controller.gameState['running'] and self.controller.gameState['elapsed']>elapsed)
+    def test_watch_pause_and_studio_start_resumes_same_road(self):
+        self.controller.requestGameStart();self.wait(lambda:self.controller.gameState['elapsed']>=.1)
+        self.device.running=False;self.device.revision+=1
+        self.wait(lambda:not self.controller.state['busy'])
+        self.assertEqual(self.controller.gameState['status'],'paused')
+        elapsed=self.controller.gameState['elapsed']
+        self.controller.requestGameStart()
+        self.wait(lambda:self.controller.gameState['running'] and self.controller.gameState['elapsed']>elapsed)
+        self.assertTrue(self.device.running)
+    def test_pause_leaves_no_stale_stopping_message(self):
+        self.controller.requestGameStart();self.wait(lambda:self.controller.gameState['elapsed']>=.1)
+        self.controller.pauseGame();self.wait(lambda:not self.controller.state['busy'])
+        self.assertEqual(self.controller.state['statusMessage'],'')
+    def test_repeated_start_clicks_do_not_restart_after_pause(self):
+        release=self.blocked_heartbeat()
+        self.controller.requestGameStart();self.controller.requestGameStart()
+        release.set()
+        self.wait(lambda:self.controller.gameState['elapsed']>=.1)
+        self.assertEqual(len(self.controller._deferred),0)
+        self.controller.pauseGame();self.wait(lambda:not self.controller.state['busy'])
+        self.device.calls.clear();self.wait(lambda:self.controller._worker is None)
+        self.qt.processEvents()
+        self.assertEqual(self.controller.gameState['status'],'paused')
+        self.assertNotIn('H:1',self.device.calls)
+    def test_pause_cancels_a_start_still_waiting_for_heartbeat(self):
+        release=self.blocked_heartbeat()
+        self.controller.requestGameStart()
+        self.assertEqual(len(self.controller._deferred),1)
+        self.controller.pauseGame()
+        release.set()
+        self.wait(lambda:self.controller._worker is None)
+        self.assertFalse(self.controller.gameState['running'])
+        self.assertNotIn('H:1',self.device.calls)
+    def test_space_brakes_without_pausing(self):
+        self.controller.requestGameStart();self.wait(lambda:self.controller.gameState['elapsed']>=.1)
+        speed=self.controller.gameState['egoKmh']
+        self.controller.gameKey('space',True,False)
+        self.wait(lambda:self.controller.gameState['egoKmh']<speed-1)
+        self.assertEqual(self.controller.gameState['status'],'running')
+        self.controller.gameKey('space',False,False)
+    def launch(self):
+        self.controller.setVehicle('roadster')
+        self.controller.requestGameStart();self.wait(lambda:self.controller.gameState['running'])
+    def test_flier_climbs_before_the_plant_starts_then_drives(self):
+        with patch('device_studio.game_sim.LAUNCH_SECONDS',.4):
+            self.device.calls.clear()
+            self.launch()
+            self.assertTrue(self.controller.gameState['launching'])
+            self.assertTrue(self.device.running,'Watch must show the run during the climb')
+            self.wait(lambda:'J' in self.device.calls[1:])
+            self.assertEqual(self.controller.gameState['elapsed'],0.)
+            self.assertFalse(any(c.startswith('T:') for c in self.device.calls))
+            self.wait(lambda:self.controller.gameState['elapsed']>=.1)
+            self.assertFalse(self.controller.gameState['launching'])
+    def test_pause_on_the_ramp_goes_back_to_the_start_and_replays(self):
+        with patch('device_studio.game_sim.LAUNCH_SECONDS',5):
+            self.launch()
+            self.controller.pauseGame();self.wait(lambda:not self.controller.state['busy'])
+            self.assertEqual(self.controller.gameState['status'],'ready')
+            self.assertFalse(self.controller.gameState['launching'])
+            self.assertFalse(self.device.running)
+            self.controller.requestGameStart();self.wait(lambda:self.controller.gameState['running'])
+            self.assertTrue(self.controller.gameState['launching'],'A new start must climb again')
+    def test_watch_pause_on_the_ramp_stops_the_launch(self):
+        with patch('device_studio.game_sim.LAUNCH_SECONDS',5):
+            self.launch()
+            self.device.running=False;self.device.revision+=1
+            self.wait(lambda:not self.controller.state['busy'])
+            self.assertEqual(self.controller.gameState['status'],'ready')
+            self.assertFalse(any(c.startswith('T:') for c in self.device.calls))
+    def test_resuming_after_the_release_does_not_climb_again(self):
+        with patch('device_studio.game_sim.LAUNCH_SECONDS',.2):
+            self.launch();self.wait(lambda:self.controller.gameState['elapsed']>=.1)
+            self.controller.pauseGame();self.wait(lambda:not self.controller.state['busy'])
+            self.assertEqual(self.controller.gameState['status'],'paused')
+            self.controller.requestGameStart();self.wait(lambda:self.controller.gameState['running'])
+            self.assertFalse(self.controller.gameState['launching'])
     def test_navigation_away_pauses_game_and_releases_keys(self):
         self.controller.startGame();self.wait(lambda:self.controller.gameState['elapsed']>=.1)
         self.controller.gameKey('w',True,False);self.controller.navigate('firmware')
