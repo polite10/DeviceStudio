@@ -4,7 +4,7 @@ ADASLab, Python + PySide6 / Qt Quick masaüstü uygulamasıdır; kaynakları bu 
 
 ## Açılış
 
-Python 3.12+ gerekir. Başlatıcılar proje içindeki `.venv` ortamını hazırlar; bağımlılıklar `requirements.txt` içinde sabitlenmiştir (`PySide6==6.12.0`, `pyserial==3.5`).
+Python 3.10+ gerekir (PySide6 6.12.0 için Python 3.10–3.15). Windows'ta 64 bit Python kullanın. Başlatıcılar proje içindeki `.venv` ortamını hazırlar; bağımlılıklar `requirements.txt` içinde sabitlenmiştir (`PySide6==6.12.0`, `pyserial==3.5`).
 
 ```sh
 # macOS
