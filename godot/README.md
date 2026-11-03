@@ -11,7 +11,7 @@
 
 Oyunun menüsü saatteki ADAS ayarlarını yalnız gösterir. **Yolu sıfırla** yeni trafik sürüşünü hazırlar; sürüşü tekrar saatten başlatın. Pencere odağı kaybolunca, USB kesilince veya uygulama kapanınca tuşlar bırakılır ve saate duraklatma gönderilir. Yeniden bağlantı eski sürüşü otomatik sürdürmez. USB portu gerekirse menüden seçilebilir.
 
-Saatte mevcut **ADASLab v2 / DeviceBoot v2** yeterlidir. Bu değişiklik için firmware yeniden yüklenmez. Studio artık kendi 3B sürüş sahnesini de içerir; bu bağımsız paket Studio başlatıcısından açılmaz.
+Saatte **ADASLab v2 veya v3 / DeviceBoot v2** yeterlidir. Bu prototip kör nokta sensörlerini (`N:`) göndermez; kör nokta, şerit takip ve yan/arka önleme yalnız Studio'daki sürüştedir, A/D burada eskisi gibi şerit değiştirir. Studio artık kendi 3B sürüş sahnesini de içerir; bu bağımsız paket Studio başlatıcısından açılmaz.
 
 ## Mimari
 

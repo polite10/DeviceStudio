@@ -24,6 +24,28 @@ FocusScope {
     readonly property bool busy: studio ? Boolean(studio.state.busy) : false
     property bool hoodCamera: false
     property bool soundOn: true
+    // What the firmware reports beside and behind the car.
+    readonly property int assistBits: playing ? Number(game.assistBits || 0) : 0
+    readonly property int blindLeft: playing ? Number(game.blindLeft || 0) : 0
+    readonly property int blindRight: playing ? Number(game.blindRight || 0) : 0
+    readonly property int rearThreat: playing ? Number(game.rearThreat || 0) : 0
+    readonly property bool sideAlert: blindLeft > 1 || blindRight > 1 || rearThreat > 1
+    // The most pressing thing the side and rear systems are doing; empty when nothing.
+    readonly property var aroundNote: {
+        const bits = drive.assistBits
+        if (bits & 16) return ["ŞERİTTEN KAÇIŞ", "· arkadan gelen araç için", "#63dec2"]
+        if (bits & 4) return ["KAÇIŞ GAZI", "· arkadan veya yandan gelen araç için", "#63dec2"]
+        if (bits & 2) return ["YÖN DÜZELTME", "· yanda araç var", "#ff8a5c"]
+        if (bits & 8) return ["YANDAN ARAÇ GİRİYOR", "· fren", "#ff8a5c"]
+        if (bits & 1) return ["ŞERİT TAKİP", "· sinyal ver veya direksiyonu zorla", "#63dec2"]
+        if (drive.rearThreat > 1) return ["ARKADAN HIZLI ARAÇ", "", "#ff8a5c"]
+        if (drive.blindLeft > 1) return ["KÖR NOKTA · SOL", "· o tarafa geçme", "#ff4a58"]
+        if (drive.blindRight > 1) return ["KÖR NOKTA · SAĞ", "· o tarafa geçme", "#ff4a58"]
+        if (bits & 32) return ["SÜRÜCÜ DEVRALDI", "· şerit takip bekliyor", "#ffc35c"]
+        if (bits & 64) return ["ŞERİT UYARISI", "", "#ffc35c"]
+        if (drive.playing && Boolean(drive.game.scraping)) return ["BARİYERE SÜRTÜNÜYOR", "", "#ff8a5c"]
+        return null
+    }
     // Per-frame updates run while driving, briefly after any change, and for
     // the showroom orbit only while Studio is the active application.
     readonly property bool showroom: !playing && game.status !== "paused" && !hoodCamera
@@ -126,6 +148,7 @@ FocusScope {
         property bool corridor: true
         property bool bracket: true
         property bool sensors: true
+        property bool blindSpot: true
     }
     property bool settling: true
     function settle() { drive.settling = true; settleTimer.restart() }
@@ -140,7 +163,7 @@ FocusScope {
     readonly property real renderDelay: 0.1
     property var kin: ({
         clock: 0, renderT: 0, leadAverage: 0.1, buffer: [], target: 1,
-        distance: 0, speed: 0, accel: 0, lane: 1, laneRate: 0, x: 0, lateral: 0, latAccel: 0, yaw: 0,
+        distance: 0, speed: 0, accel: 0, lane: 1, laneRate: 0, x: 0, lateral: 0, latAccel: 0, yaw: 0, wheel: 0,
         pitch: 0, pitchRate: 0, roll: 0, rollRate: 0, flip: 0, lift: 0, jet: 0, retro: 0, side: 0,
         camX: 0, camBack: 9.2, orbit: 0, idle: 0, shake: 0, blink: false, lastBlink: false, lead: -1, slots: [],
         alt: 0, renderAlt: 0, intro: -1, rampAt: 0, wing: 0, climb: 0, launchClock: 0, spectatorAt: [28, 3.6, -10, 36]
@@ -154,7 +177,8 @@ FocusScope {
     function keyName(key) {
         return ({[Qt.Key_W]:"w", [Qt.Key_Up]:"up", [Qt.Key_S]:"s", [Qt.Key_Down]:"down",
                  [Qt.Key_Space]:"space", [Qt.Key_A]:"a", [Qt.Key_Left]:"left", [Qt.Key_D]:"d",
-                 [Qt.Key_Right]:"right", [Qt.Key_R]:"r", [Qt.Key_F]:"f"})[key] || ""
+                 [Qt.Key_Right]:"right", [Qt.Key_R]:"r", [Qt.Key_F]:"f", [Qt.Key_Q]:"q", [Qt.Key_E]:"e",
+                 [Qt.Key_Z]:"z", [Qt.Key_X]:"x"})[key] || ""
     }
     // Plant vehicle classes to their models; sizes match the plant's footprints.
     readonly property var kinds: ({sedan: 0, suv: 1, hatch: 2, taxi: 3, van: 4, sahin: 5, model3: 6})
@@ -171,7 +195,8 @@ FocusScope {
                        target: Number(g.targetLane === undefined ? 1 : g.targetLane), h: Number(g.altitude || 0),
                        vy: Number(g.egoLaneRate || 0), ay: Number(g.egoLatAccel || 0), signal: Number(g.egoSignal || 0),
                        braking: Boolean(g.egoBraking), roll: Number(g.roll || 0), lift: Number(g.lift || 0),
-                       boost: Number(g.boost || 0), retro: Number(g.retro || 0), side: Number(g.side || 0), cars: {}}
+                       boost: Number(g.boost || 0), retro: Number(g.retro || 0), side: Number(g.side || 0),
+                       wheel: Number(g.wheel || 0), cars: {}}
         for (const car of (g.traffic || []))
             entry.cars[car.id] = {z: entry.d + Number(car.relativeZ), v: Number(car.speedKmh) / 3.6,
                                   lane: Number(car.lane), vy: Number(car.laneRate || 0), braking: Boolean(car.braking),
@@ -260,6 +285,7 @@ FocusScope {
             k.lane = drive.hermite(s0.lane, s0.vy, s1.lane, s1.vy, h, u)
             k.laneRate = s0.vy + (s1.vy - s0.vy) * u
             k.latAccel = s0.ay + (s1.ay - s0.ay) * u
+            k.wheel = s0.wheel + (s1.wheel - s0.wheel) * u
             k.alt = s0.h + (s1.h - s0.h) * u
             accel = s0.a + (s1.a - s0.a) * u
             // Rolls wrap at a full turn: never spin back from 360° to 0°.
@@ -277,7 +303,7 @@ FocusScope {
             k.distance = s0.d + s0.v * ahead
             k.speed = s0.v
             k.lane = s0.lane + s0.vy * ahead
-            k.laneRate = s0.vy; k.latAccel = s0.ay
+            k.laneRate = s0.vy; k.latAccel = s0.ay; k.wheel = s0.wheel
             k.alt = s0.h
             k.flip = s0.roll; k.lift = s0.lift; k.jet = s0.boost; k.retro = s0.retro; k.side = s0.side
         }
@@ -303,6 +329,9 @@ FocusScope {
         ego.bodyPitch = k.pitch
         ego.bodyRoll = k.roll
         ego.wheelAngle = -k.distance * 200
+        ego.steerAngle = live ? -drive.clamp(k.wheel, -1, 1) * 26 : 0
+        cockpit.wheel = live ? k.wheel : 0
+        chaseWheel.angle = live ? k.wheel * 95 : 0
         ego.braking = live && near.braking
         ego.indicator = signal
         ego.blinkOn = k.blink
@@ -312,6 +341,8 @@ FocusScope {
         highway.drivingTime = k.renderT + k.launchClock
         cluster.indicator = signal
         cluster.blinkOn = k.blink
+        cockpit.indicator = signal
+        cockpit.blinkOn = k.blink
         if (signal !== 0 && k.blink && !k.lastBlink)
             sounds.tick()
         k.lastBlink = k.blink
@@ -483,7 +514,10 @@ FocusScope {
             car.blinkOn = k.blink
             const inPath = Math.abs(slot.lane - k.lane) < 0.6 || (Math.abs(k.target - k.lane) > 0.05 && Math.abs(slot.lane - k.target) < 0.6)
             if (ahead > 2.0 && inPath && ahead < leadAhead) { lead = i; leadAhead = ahead }
-            radarCars.push({lane: slot.lane, ahead: ahead, lead: false, braking: slot.braking})
+            const g = drive.game
+            radarCars.push({lane: slot.lane, ahead: ahead, lead: false, braking: slot.braking,
+                            watched: live && (slot.id === g.sensorLeft && drive.blindLeft > 0 || slot.id === g.sensorRight && drive.blindRight > 0
+                                              || slot.id === g.sensorRear && drive.rearThreat > 0)})
         }
         if (lead >= 0)
             radarCars[lead].lead = true
@@ -608,6 +642,22 @@ FocusScope {
         const tint = drive.emergency ? [1.0, 0.16, 0.2] : close || drive.warning ? [1.0, 0.62, 0.12] : [0.18, 0.85, 0.7]
         corridorMaterial.tint = Qt.vector3d(tint[0], tint[1], tint[2])
         corridorMaterial.strength = drive.emergency ? 1.4 : 1.0
+        // The blind zones beside the car, from the mirror to 3 m past the bumper:
+        // barely there while empty, amber with a car in them, red if steering at it.
+        const levels = [drive.blindLeft, drive.blindRight], flash = pulse.lit
+        for (let i = 0; i < 2; ++i) {
+            const zone = blindZones.objectAt(i)
+            if (!zone)
+                continue
+            const side = i ? 1 : -1
+            zone.visible = show && garage.blindSpot && !drive.hoodCamera && (i ? k.lane < 1.6 : k.lane > 0.4)
+            zone.x = k.x + side * (ego.halfWidth + 0.5 + 1.25)
+            zone.z = (ego.length / 2 + 3 - 0.6) / 2
+            zone.scale = Qt.vector3d(0.025, (ego.length / 2 + 3 + 0.6) / 100, 1)
+            const level = levels[i], material = zone.materials[0]
+            material.tint = level > 1 ? Qt.vector3d(1.0, 0.16, 0.2) : level > 0 ? Qt.vector3d(1.0, 0.62, 0.12) : Qt.vector3d(0.55, 0.75, 0.8)
+            material.strength = level > 1 ? (flash ? 1.5 : 0.8) : level > 0 ? 1.1 : 0.22
+        }
         const closing = leadSlot ? Math.round((k.speed - leadSlot.speed) * 3.6) : 0
         radar.relativeText = !leadSlot ? "—" : closing === 0 ? "0 km/sa" : (closing > 0 ? "−" : "+") + Math.abs(closing) + " km/sa"
 
@@ -641,6 +691,7 @@ FocusScope {
         if (!visible && studio) studio.releaseGameKeys()
     }
     onHoodCameraChanged: drive.settle()
+    onSideAlertChanged: if (sideAlert) sounds.alert()
     // It lets go of the ceiling as the plant starts, with the usual render delay.
     onLaunchingChanged: {
         const k = drive.kin
@@ -653,7 +704,7 @@ FocusScope {
     Timer { id: settleTimer; interval: 2500; running: true; onTriggered: drive.settling = false }
     Component.onCompleted: {
         const slots = []
-        for (let i = 0; i < 12; ++i)
+        for (let i = 0; i < 16; ++i)
             slots.push({id: -1})
         drive.kin.slots = slots
         drive.sample()
@@ -740,6 +791,7 @@ FocusScope {
         property string caption
         property color ink: "#63dec2"
         property bool pause: false
+        property bool restart: false
         signal activated()
         implicitWidth: runRow.implicitWidth + 28; implicitHeight: 34
         radius: 8
@@ -755,7 +807,7 @@ FocusScope {
                 width: 11; height: 12; anchors.verticalCenter: parent.verticalCenter
                 Rectangle { visible: run.pause; width: 4; height: 12; radius: 1; color: runText.color }
                 Rectangle { visible: run.pause; x: 7; width: 4; height: 12; radius: 1; color: runText.color }
-                Text { visible: !run.pause; anchors.centerIn: parent; text: "▶︎"; color: runText.color; font.pixelSize: 11 }
+                Text { visible: !run.pause; anchors.centerIn: parent; text: run.restart ? "↺" : "▶︎"; color: runText.color; font.pixelSize: run.restart ? 14 : 11 }
             }
             Copy { id: runText; text: run.caption; color: run.enabled ? "#10251f" : "#637684"; font.weight: Font.Bold; font.letterSpacing: 0.8 }
         }
@@ -872,7 +924,7 @@ FocusScope {
                     if (!event.isAutoRepeat) drive.hoodCamera = !drive.hoodCamera
                     event.accepted = true
                 } else if (event.key === Qt.Key_V) {
-                    if (!event.isAutoRepeat) garage.corridor = garage.bracket = !(garage.corridor || garage.bracket)
+                    if (!event.isAutoRepeat) garage.corridor = garage.bracket = garage.blindSpot = !(garage.corridor || garage.bracket || garage.blindSpot)
                     event.accepted = true
                 } else if (event.key === Qt.Key_M) {
                     if (!event.isAutoRepeat) drive.soundOn = !drive.soundOn
@@ -893,8 +945,8 @@ FocusScope {
                 camera: driveCamera
                 environment: ExtendedSceneEnvironment {
                     backgroundMode: SceneEnvironment.SkyBoxCubeMap
-                    skyBoxCubeMap: CubeMapTexture { source: "assets/sky/sky_%p.jpg" }
-                    lightProbe: Texture { source: "assets/sky/probe.hdr" }
+                    skyBoxCubeMap: CubeMapTexture { id: skyMap; source: "assets/sky/sky_%p.jpg" }
+                    lightProbe: Texture { id: skyProbe; source: "assets/sky/probe.hdr" }
                     probeExposure: 0.78
                     probeHorizon: 0.35
                     antialiasingMode: SceneEnvironment.MSAA
@@ -932,9 +984,10 @@ FocusScope {
                     color: "#fff2df"; brightness: 1.55
                     ambientColor: "#1a2128"
                     castsShadow: true
-                    shadowMapQuality: Light.ShadowMapQualityVeryHigh
-                    shadowMapFar: 240
-                    csmNumSplits: 2; csmSplit1: 0.12; csmSplit2: 0.4; csmBlendRatio: 0.08
+                    // The mirrors render the scene and its shadows again: lighter from the seat.
+                    shadowMapQuality: viewport.pilot ? Light.ShadowMapQualityHigh : Light.ShadowMapQualityVeryHigh
+                    shadowMapFar: viewport.pilot ? 140 : 240
+                    csmNumSplits: viewport.pilot ? 0 : 2; csmSplit1: 0.12; csmSplit2: 0.4; csmBlendRatio: 0.08
                     lockShadowmapTexels: true
                     shadowFactor: 72; shadowBias: 0.012
                     softShadowQuality: Light.PCF16; pcfFactor: 1.6
@@ -948,7 +1001,7 @@ FocusScope {
                 }
                 Repeater3D {
                     id: traffic
-                    model: 12
+                    model: 16
                     delegate: Vehicle3D { visible: false; lamps: 0.4 }
                 }
                 Node {
@@ -1145,6 +1198,28 @@ FocusScope {
                         }
                     }
                 }
+                Repeater3D {
+                    id: blindZones
+                    model: 2
+                    delegate: Model {
+                        required property int index
+                        objectName: index ? "blindZoneRight" : "blindZoneLeft"
+                        source: "#Rectangle"
+                        visible: false
+                        y: 0.032
+                        eulerRotation.x: -90
+                        castsShadows: false; receivesShadows: false
+                        materials: CustomMaterial {
+                            shadingMode: CustomMaterial.Unshaded
+                            vertexShader: "shaders/corridor.vert"
+                            fragmentShader: "shaders/zone.frag"
+                            sourceBlend: CustomMaterial.SrcAlpha
+                            destinationBlend: CustomMaterial.OneMinusSrcAlpha
+                            property real strength: 0.2
+                            property vector3d tint: Qt.vector3d(0.55, 0.75, 0.8)
+                        }
+                    }
+                }
                 Node {
                     id: corridor
                     objectName: "followCorridor"
@@ -1181,6 +1256,69 @@ FocusScope {
                 cursorShape: drive.playing ? Qt.BlankCursor : Qt.ArrowCursor
             }
 
+            // The pilot camera's seat: dashboard, steering wheel and wing mirrors.
+            readonly property bool pilot: drive.hoodCamera && (drive.playing || drive.game.status === "paused") && !drive.launching
+            DriveCockpit {
+                id: cockpit
+                anchors.fill: parent
+                visible: viewport.pilot
+                ink: (drive.assistBits & 3) || (drive.assistBits & 16) ? "#63dec2" : (drive.assistBits & 32) ? "#ffc35c" : "#c8d4dc"
+            }
+            DriveMirror {
+                id: leftMirror
+                side: -1
+                world: scene.scene; sky: skyMap; probe: skyProbe
+                visible: viewport.pilot
+                anchors.left: parent.left; anchors.leftMargin: 16; y: 62
+                width: 262 * viewport.ui; height: 124 * viewport.ui
+                level: drive.blindLeft; flash: pulse.lit
+                carX: ego.x; carHalfWidth: ego.halfWidth; carYaw: ego.eulerRotation.y - 180
+            }
+            DriveMirror {
+                id: rightMirror
+                side: 1
+                world: scene.scene; sky: skyMap; probe: skyProbe
+                visible: viewport.pilot
+                anchors.right: parent.right; anchors.rightMargin: 16; y: viewport.compact ? 62 : 88
+                width: 262 * viewport.ui; height: 124 * viewport.ui
+                level: drive.blindRight; flash: pulse.lit
+                carX: ego.x; carHalfWidth: ego.halfWidth; carYaw: ego.eulerRotation.y - 180
+            }
+            // Beside the follow camera's road drawings: the wheel and the lamps at a glance.
+            Item {
+                objectName: "chaseSteering"
+                visible: drive.playing && !viewport.pilot && !drive.launching && garage.blindSpot && drive.mode !== "off"
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.bottom; anchors.bottomMargin: 14
+                width: 210; height: 62
+                scale: viewport.ui; transformOrigin: Item.Bottom
+                Repeater {
+                    model: [-1, 1]
+                    delegate: Rectangle {
+                        required property int modelData
+                        readonly property int level: modelData < 0 ? drive.blindLeft : drive.blindRight
+                        x: modelData < 0 ? 0 : parent.width - width
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 62; height: 26; radius: 7
+                        color: level > 1 ? (pulse.lit ? "#ff4a58" : "#7a2730") : level > 0 ? "#ffb52e" : "#a80a1219"
+                        border.width: 1; border.color: level > 0 ? "transparent" : "#22ffffff"
+                        Text {
+                            anchors.centerIn: parent
+                            text: modelData < 0 ? "◀ SOL" : "SAĞ ▶"
+                            color: parent.level > 0 ? "#1b1006" : "#6f8796"
+                            font.pixelSize: 10; font.weight: Font.Bold
+                        }
+                    }
+                }
+                DriveSteering {
+                    id: chaseWheel
+                    anchors.centerIn: parent
+                    width: 62; height: 62
+                    ink: (drive.assistBits & 3) || (drive.assistBits & 16) ? "#63dec2" : "#d6e1e8"
+                    rimColor: "#d90a1219"; spokeColor: "#e60a1219"
+                }
+            }
+
             // Edge glow for collision warnings and emergency braking.
             Item {
                 id: edgeGlow
@@ -1189,7 +1327,7 @@ FocusScope {
                 opacity: drive.playing && drive.emergency ? (pulse.lit ? 0.8 : 0.35) : drive.playing && drive.warning ? (pulse.lit ? 0.45 : 0.2) : 0
                 Behavior on opacity { NumberAnimation { duration: 120 } }
                 readonly property color ink: drive.emergency ? "#ff2e45" : "#ffae2e"
-                Timer { id: pulse; property bool lit: true; interval: drive.emergency ? 160 : 380; repeat: true; running: drive.playing && (drive.emergency || drive.warning); onTriggered: lit = !lit }
+                Timer { id: pulse; property bool lit: true; interval: drive.emergency ? 160 : drive.sideAlert ? 220 : 380; repeat: true; running: drive.playing && (drive.emergency || drive.warning || drive.sideAlert); onTriggered: lit = !lit }
                 Rectangle {
                     anchors { left: parent.left; right: parent.right; top: parent.top }
                     height: parent.height * 0.18
@@ -1312,6 +1450,28 @@ FocusScope {
                 }
             }
 
+            // Lane keeping, blind spot and rear systems at work.
+            Rectangle {
+                objectName: "aroundBanner"
+                visible: drive.aroundNote !== null && !drive.launching
+                anchors.top: parent.top; anchors.horizontalCenter: parent.horizontalCenter
+                anchors.topMargin: drive.emergency || drive.warning ? 122 : 66
+                width: aroundRow.implicitWidth + 36; height: 38; radius: 10
+                color: "#dc0a1219"; border.width: 2
+                border.color: drive.aroundNote ? drive.aroundNote[2] : "transparent"
+                scale: viewport.ui
+                Row {
+                    id: aroundRow; anchors.centerIn: parent; spacing: 8
+                    Copy {
+                        objectName: "aroundText"
+                        text: drive.aroundNote ? drive.aroundNote[0] : ""
+                        color: drive.aroundNote ? drive.aroundNote[2] : "transparent"
+                        font.weight: Font.Bold; font.pixelSize: 14; font.letterSpacing: 0.8; anchors.verticalCenter: parent.verticalCenter
+                    }
+                    Copy { text: drive.aroundNote ? drive.aroundNote[1] : ""; color: "#b8c8d2"; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
+                }
+            }
+
             // A refused landing: the lane below is taken.
             Rectangle {
                 objectName: "landingBlocked"
@@ -1366,7 +1526,8 @@ FocusScope {
             DriveRadar {
                 id: radar
                 // The plant has not started on the ramp: nothing true to show yet.
-                visible: garage.sensors && !drive.launching
+                visible: garage.sensors && !drive.launching && !(viewport.pilot && viewport.compact)
+                blindLeft: drive.blindLeft; blindRight: drive.blindRight; rearThreat: drive.rearThreat
                 anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.margins: 14
                 transformOrigin: Item.BottomRight
                 scale: viewport.compact ? 0.62 : viewport.ui
@@ -1441,20 +1602,35 @@ FocusScope {
                               : drive.flying && drive.choosing ? "Taklacı Güvercin, tanıtımdaki J rampanın önünde bekliyor. BAŞLAT’a burada veya saatte dokun; rampaya tırmanır, tavanda durur ve iticileriyle takla atarak yola iner."
                               : "Modu ve ACC ayarını saatten seç. BAŞLAT’a burada veya saatte dokun."
                     }
-                    RunButton {
-                        objectName: "driveStartButton"
-                        visible: drive.available
-                        enabled: !drive.busy
-                        caption: drive.game.status === "paused" ? "DEVAM ET" : drive.finished ? "YENİ SÜRÜŞ" : "BAŞLAT"
-                        onActivated: if (enabled) drive.studio.requestGameStart()
+                    Row {
+                        spacing: 10
+                        RunButton {
+                            objectName: "driveStartButton"
+                            visible: drive.available
+                            enabled: !drive.busy
+                            caption: drive.game.status === "paused" ? "DEVAM ET" : drive.finished ? "YENİ SÜRÜŞ" : "BAŞLAT"
+                            onActivated: if (enabled) drive.studio.requestGameStart()
+                        }
+                        // The paused road can be left for the car picker without having to crash.
+                        RunButton {
+                            objectName: "driveChooseCarButton"
+                            visible: drive.game.status === "paused"
+                            enabled: !drive.busy
+                            caption: "YENİDEN BAŞLAT · ARAÇ SEÇ"
+                            ink: "#b6c9d5"
+                            restart: true
+                            onActivated: if (enabled) drive.studio.chooseNewCar()
+                        }
                     }
                     Flow {
                         width: parent.width; spacing: 14
                         Keycap { keys: "W ↑"; label: "Gaz" }
                         Keycap { keys: "S ↓ ␣"; label: "Fren" }
-                        Keycap { keys: "A D"; label: drive.flying ? "Taklayla şerit" : "Şerit" }
+                        Keycap { keys: "A D"; label: "Direksiyon" }
+                        Keycap { keys: "Q E"; label: "Sinyal" }
+                        Keycap { keys: "Z X"; label: "Takla"; visible: drive.flying }
                         Keycap { keys: "R F"; label: "Yüksel / alçal"; visible: drive.flying }
-                        Keycap { keys: "C"; label: drive.hoodCamera ? "Kaput kamerası" : "Takip kamerası" }
+                        Keycap { keys: "C"; label: drive.hoodCamera ? "Pilot kamerası" : "Takip kamerası" }
                         Keycap { keys: "Esc"; label: "Duraklat" }
                     }
                 }
@@ -1466,19 +1642,25 @@ FocusScope {
             Copy { text: "GÖSTERGELER"; color: "#748f9e"; font.pixelSize: 10; font.letterSpacing: 1; Layout.rightMargin: 4 }
             IndicatorSwitch {
                 objectName: "indicatorCorridor"
-                caption: "Takip koridoru"; detail: "Yoldaki takip mesafesi şeridi"
+                caption: "Koridor"; detail: "Yoldaki takip mesafesi şeridi"
                 checked: garage.corridor
                 onToggled: garage.corridor = !garage.corridor
             }
             IndicatorSwitch {
                 objectName: "indicatorBracket"
-                caption: "Araç çerçevesi"; detail: "Öndeki aracın çerçevesi, mesafesi ve TTC"
+                caption: "Çerçeve"; detail: "Öndeki aracın çerçevesi, mesafesi ve TTC"
                 checked: garage.bracket
                 onToggled: garage.bracket = !garage.bracket
             }
             IndicatorSwitch {
+                objectName: "indicatorBlindSpot"
+                caption: "Kör nokta"; detail: "Aracın iki yanında yola çizilen kör nokta bölgeleri"
+                checked: garage.blindSpot
+                onToggled: garage.blindSpot = !garage.blindSpot
+            }
+            IndicatorSwitch {
                 objectName: "indicatorSensors"
-                caption: "Sensör görünümü"; detail: "Sağ alttaki kuşbakışı araç haritası"
+                caption: "Sensör"; detail: "Sağ alttaki kuşbakışı araç haritası"
                 checked: garage.sensors
                 onToggled: garage.sensors = !garage.sensors
             }
@@ -1496,12 +1678,14 @@ FocusScope {
         RowLayout {
             Layout.fillWidth: true; spacing: 16
             Keycap { keys: "WASD"; label: "Sür" }
+            Keycap { keys: "Q E"; label: "Sinyal"; active: Number(drive.game.egoSignal || 0) !== 0 }
             Keycap { keys: "␣"; label: "Fren" }
             Keycap { keys: "Esc"; label: "Duraklat" }
             Keycap { keys: "C"; label: "Kamera"; active: drive.hoodCamera }
-            Keycap { keys: "V"; label: "Yol çizimleri"; active: garage.corridor || garage.bracket }
+            Keycap { keys: "V"; label: "Yol çizimleri"; active: garage.corridor || garage.bracket || garage.blindSpot }
             Keycap { keys: "M"; label: drive.soundOn ? "Ses açık" : "Ses kapalı"; active: drive.soundOn }
             Keycap { keys: "R F"; label: "Uçuş katmanı"; visible: drive.flying; active: Number(drive.game.layer || 0) > 0 }
+            Keycap { keys: "Z X"; label: "Takla"; visible: drive.flying }
             Item { Layout.fillWidth: true }
         }
     }
@@ -1513,6 +1697,7 @@ FocusScope {
         readonly property bool available: mediaDevices.audioOutputs.length > 0
         readonly property bool audible: drive.soundOn && drive.visible && available
         function tick() { if (sounds.audible) tickSound.play() }
+        function alert() { if (sounds.audible) blindSound.play() }
         function road(speed) {
             const level = sounds.audible && drive.playing ? 0.05 + 0.4 * Math.pow(drive.clamp(speed / 55, 0, 1), 1.4) : 0
             bedSound.volume = level
@@ -1522,6 +1707,7 @@ FocusScope {
         SoundEffect { id: fcwSound; source: sounds.available ? "assets/sounds/fcw.wav" : ""; volume: 0.5 }
         SoundEffect { id: aebSound; source: sounds.available ? "assets/sounds/aeb.wav" : ""; volume: 0.6 }
         SoundEffect { id: tickSound; source: sounds.available ? "assets/sounds/indicator.wav" : ""; volume: 0.3 }
+        SoundEffect { id: blindSound; source: sounds.available ? "assets/sounds/fcw.wav" : ""; volume: 0.3 }
         SoundEffect { id: bedSound; source: sounds.available ? "assets/sounds/road.wav" : ""; loops: SoundEffect.Infinite; volume: 0 }
         Timer {
             interval: drive.emergency ? 300 : 650

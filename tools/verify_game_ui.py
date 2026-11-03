@@ -6,6 +6,7 @@ watch actions. No Flash writes. Reports and window captures go to capture-dir.
 Run with native Qt RHI (Metal on macOS); the software backend cannot render 3D.
 """
 import argparse
+import dataclasses
 import json
 from pathlib import Path
 import sys
@@ -47,6 +48,9 @@ def main():
         print(text, file=sys.stderr)
     qInstallMessageHandler(message)
     controller = StudioController(arm_sim=args.backend == 'arm', start_timers=False)
+    # A careless driver must not end these timed key checks at random.
+    plain_config = controller._game_config
+    controller._game_config = lambda: dataclasses.replace(plain_config(), surprises=False)
     if args.port:
         index = next(i for i, port in enumerate(controller.state['ports']) if port['device'] == args.port)
         controller.selectPort(index)
@@ -71,7 +75,7 @@ def main():
 
     def check(condition, description):
         if not condition:
-            raise AssertionError(description)
+            raise AssertionError(description + ' [' + str(controller.gameState['status']) + ', lane ' + str(controller.gameState['egoLane']) + ']')
         report['checks'].append(description)
         print('PASS: ' + description, flush=True)
 
@@ -162,7 +166,7 @@ def main():
         idle()
         command('H:0')  # Clear a pre-existing watch request before controlled QA.
         heartbeat()
-        check(controller.gameState['ready'] and controller.state['page'] == 'game', 'ADASLab v2 routes directly to the embedded 3D view')
+        check(controller.gameState['ready'] and controller.state['page'] == 'game', 'ADASLab v3 routes directly to the embedded 3D view')
         check(item('embeddedDriveScene').metaObject().className().startswith('QQuick3DViewport'), 'Scene is a real Qt Quick 3D View3D inside Studio')
         check(window.findChild(QObject, 'gameView') is None and window.findChild(QObject, 'scenarioSelector') is None,
               'Old 2D game and ADASLab experiment controls are absent')
@@ -217,21 +221,58 @@ def main():
         pump(.5)
         check(controller.gameState['running'] and controller.gameState['egoKmh'] < speed - 1, 'Space brakes and does not pause')
         QTest.keyRelease(window, Qt.Key.Key_Space)
-        QTest.keyClick(window, Qt.Key.Key_A)
-        wait(lambda: controller.gameState['targetLane'] == 0, 'A did not steer left')
-        QTest.keyPress(window, Qt.Key.Key_D)
-        wait(lambda: controller.gameState['targetLane'] == 1, 'D did not steer right')
-        for _ in range(6):
-            app.sendEvent(window, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_D, Qt.KeyboardModifier.NoModifier, 'd', True, 1))
+        QTest.keyPress(window, Qt.Key.Key_W)
+        wait(lambda: controller.gameState['egoKmh'] > 60, 'W did not reach lane keeping speed', 15)
+        QTest.keyRelease(window, Qt.Key.Key_W)
+        lane = controller.gameState['egoLane']
+        QTest.keyPress(window, Qt.Key.Key_A)
+        pump(.25)
+        check(controller.gameState['wheel'] < -.2, 'A turns the steering wheel while it is held: ' + str(controller.gameState['wheel']))
+        wait(lambda: controller.gameState['egoLane'] < lane - .03, 'A did not move the car left')
+        QTest.keyRelease(window, Qt.Key.Key_A)
+        pump(.6)
+        check(abs(controller.gameState['wheel']) < .2, 'The wheel comes back when A is released')
+        check(.5 < controller.gameState['egoLane'] < 1.5 and controller.gameState['egoSignal'] == 0, 'A tap does not change lanes or signal')
+        QTest.keyClick(window, Qt.Key.Key_Q)
+        wait(lambda: controller.gameState['egoSignal'] == -1, 'Q did not latch the left indicator')
+        for _ in range(4):
+            app.sendEvent(window, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Q, Qt.KeyboardModifier.NoModifier, 'q', True, 1))
         pump(.2)
-        check(controller.gameState['targetLane'] == 1, 'Auto-repeat does not create extra lane changes')
-        QTest.keyRelease(window, Qt.Key.Key_D)
+        check(controller.gameState['egoSignal'] == -1, 'Auto-repeat does not toggle the indicator')
+        QTest.keyClick(window, Qt.Key.Key_E)
+        wait(lambda: controller.gameState['egoSignal'] == 1, 'E did not switch to the right indicator')
+        QTest.keyClick(window, Qt.Key.Key_E)
+        wait(lambda: controller.gameState['egoSignal'] == 0, 'E again did not cancel the indicator')
         check(item('driveViewport') is viewport and viewport.property('activeFocus'), 'Live telemetry preserves viewport identity and keyboard focus')
+        def frame_ms(seconds=1.5):
+            times = []
+            def note():
+                times.append(clock.property('frameTime'))
+            clock.triggered.connect(note)
+            pump(seconds)
+            clock.triggered.disconnect(note)
+            times = sorted(time for time in times if time > 0)
+            return round(times[len(times) // 2] * 1000, 2)
+        report['chase_frame_ms_p50'] = frame_ms()
+        check(item('blindZoneLeft').property('visible') and item('blindZoneRight').property('visible'), 'Blind zones lie on the road in the follow camera')
+        check(item('chaseSteering').property('visible') and not item('driveCockpit').property('visible'), 'The follow camera shows the small wheel and lamps, not the cockpit')
+        capture('studio-3d-driving')
         old_camera = item('drive3DView').property('hoodCamera')
         QTest.keyClick(window, Qt.Key.Key_C)
         check(item('drive3DView').property('hoodCamera') != old_camera, 'C switches the 3D camera in the same window')
+        pump(.2)
+        check(item('driveCockpit').property('visible') and item('driveSteeringWheel').property('visible'), 'The pilot camera sits behind a steering wheel')
+        check(item('mirrorLeftView').property('visible') and item('mirrorRightView').property('visible'), 'The pilot camera has two wing mirrors')
+        check(not item('blindZoneLeft').property('visible'), 'Road zones give way to the mirrors in the pilot camera')
+        report['pilot_frame_ms_p50'] = frame_ms()
+        check(report['pilot_frame_ms_p50'] < 34, 'The mirrors leave a smooth frame rate: ' + str(report['pilot_frame_ms_p50']) + ' ms')
+        QTest.keyPress(window, Qt.Key.Key_D)
+        pump(.5)
+        check(controller.gameState['wheel'] > .5, 'The pilot view wheel follows D')
+        capture('studio-3d-pilot')
+        QTest.keyRelease(window, Qt.Key.Key_D)
         QTest.keyClick(window, Qt.Key.Key_C)
-        capture('studio-3d-driving')
+        pump(.2)
         # The drawings in front of the car are chosen one by one, mid-drive.
         wait(lambda: item('leadTarget').property('visible') and item('followCorridor').property('visible'), 'Drawings are not showing')
         click('indicatorCorridor')
@@ -244,10 +285,13 @@ def main():
         click('indicatorSensors')
         pump(.1)
         check(not item('driveRadar').property('visible'), 'Sensor switch hides the sensor view')
+        click('indicatorBlindSpot')
+        pump(.1)
+        check(not item('blindZoneLeft').property('visible') and not item('chaseSteering').property('visible'), 'Blind spot switch hides the road zones')
         check(viewport.property('activeFocus') and controller.gameState['running'], 'Switches neither take keyboard focus nor pause the drive')
         capture('studio-3d-drawings-off')
         pump(.6)  # Settings writes are delayed.
-        check([QSettings().value('drive/' + key, type=bool) for key in ('corridor', 'bracket', 'sensors')] == [False] * 3,
+        check([QSettings().value('drive/' + key, type=bool) for key in ('corridor', 'bracket', 'sensors', 'blindSpot')] == [False] * 4,
               'Drawing choices are remembered across sessions')
         QTest.keyClick(window, Qt.Key.Key_V)
         pump(.1)
@@ -255,10 +299,11 @@ def main():
         QTest.keyClick(window, Qt.Key.Key_V)
         pump(.1)
         check(not item('followCorridor').property('visible') and not item('leadTarget').property('visible'), 'V hides both road drawings')
-        for name in ('indicatorCorridor', 'indicatorBracket', 'indicatorSensors'):
+        for name in ('indicatorCorridor', 'indicatorBracket', 'indicatorBlindSpot', 'indicatorSensors'):
             click(name)
         pump(.1)
-        check(item('followCorridor').property('visible') and item('driveRadar').property('visible'), 'Switches turn the drawings back on')
+        wait(lambda: item('followCorridor').property('visible') and item('driveRadar').property('visible'), 'Switches did not turn the drawings back on')
+        check(True, 'Switches turn the drawings back on')
         # Studio and watch each start and pause, and always agree.
         check(watch_running(), 'Watch shows the drive as running')
         click('drivePauseButton')
@@ -344,7 +389,7 @@ def main():
         pump(.2)
         start()
         check(viewport.property('activeFocus'), 'Minimum window size retains keyboard focus')
-        for name in ('driveSpeed', 'watchMode', 'watchTarget', 'watchHeadway', 'drivePauseButton', 'indicatorSensors'):
+        for name in ('driveSpeed', 'watchMode', 'watchTarget', 'watchHeadway', 'drivePauseButton', 'indicatorSensors', 'indicatorBlindSpot'):
             obj = item(name)
             point = obj.mapToScene(obj.boundingRect().topLeft())
             check(83 <= point.y() < window.height() - 38, 'Compact layout keeps control visible: ' + name)
@@ -356,10 +401,17 @@ def main():
         check(point.y() < item('driveViewport').mapToScene(QPointF(0, item('driveViewport').height())).y() and point.x() <= window.width(),
               'Compact layout keeps the start button inside the road view')
         capture('studio-3d-compact-paused')
-        # The flying car adds two gauges: everything must still fit this window.
-        controller._game.update(status='ready')
-        controller._publish()
+        # Esc's restart leaves the paused road for the car picker, no crash needed.
+        check(item('driveChooseCarButton').property('visible'), 'The pause menu offers a restart')
+        capture('studio-3d-paused-menu')
+        click('driveChooseCarButton')
+        idle()
+        wait(lambda: controller.gameState['status'] == 'ready', 'Restart did not leave the paused road')
         pump(.1)
+        check(controller.gameState['elapsed'] == 0 and controller.gameState['distance'] == 0 and controller._game_world is None, 'Restart forgets the paused drive')
+        check(item('carPicker').property('visible') and not item('driveChooseCarButton').property('visible'), 'Restart goes back to the car picker')
+        capture('studio-3d-picker-after-restart')
+        # The flying car adds two gauges: everything must still fit this window.
         click('car_roadster')
         ego, camera = item('egoVehicle3D'), item('driveCamera')
         click('driveStartButton')

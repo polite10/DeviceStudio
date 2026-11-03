@@ -10,10 +10,13 @@ The physics follows published vehicle data and standard models:
 - longitudinal: tyre, torque and power limits, aerodynamic drag, rolling
   resistance, regenerative or engine braking, gear shifts, pedal travel and
   actuator lag (VehicleSpec);
-- lateral: minimum-jerk (quintic) lane changes whose length keeps the lateral
-  acceleration and heading to what a brisk driver uses, sharper when evading;
+- lateral: a steering wheel. A held key turns it, the wheel asks for a lateral
+  acceleration a brisk driver uses (more when evading), the path lines up with
+  the road again when it returns and the car stays wherever it then is. Side
+  assists come from the firmware as a further lateral acceleration;
 - traffic: Intelligent Driver Model car following and MOBIL lane changes
-  (Treiber & Kesting) with indicators; the player is a car like any other;
+  (Treiber & Kesting) on minimum-jerk paths, with indicators; the player is a
+  car like any other. Some drivers come fast from behind, a few are careless;
 - flight (Taklacı Güvercin): cold compressed-air thrusters, as revealed for the
   2028 Roadster; the tank empties at thrust / exhaust velocity and refills on
   the road.
@@ -30,6 +33,10 @@ from .protocol import ProtocolError
 
 MODES = {'active': 0, 'warn': 1, 'off': 2}
 MODE_NAMES = {0: 'active', 1: 'warn', 2: 'off'}
+# The firmware that senses sides and rear (N:) and steers (st, as in the T: reply).
+GAME_FIRMWARE = 3
+# The firmware's assist bits (ADASLab src/surround.h).
+ASSIST_LANE, ASSIST_SIDE, ASSIST_GAS, ASSIST_BRAKE, ASSIST_EVADE, ASSIST_DRIVER, ASSIST_LDW = 1, 2, 4, 8, 16, 32, 64
 DT = .05
 G = 9.81
 RHO = 1.225                     # kg/m³, sea-level air at 15 °C
@@ -49,6 +56,17 @@ BRAKE_LAG = .12
 LATERAL_BRISK = 2.8
 EVASIVE_GRIP = .6
 MAX_HEADING = math.radians(25)
+# Keyboard steering: a held key reaches full lock in 0.45 s, a released wheel is
+# back in 0.25 s, and the car's path then lines up with the road again. A tap
+# moves it about 20 cm; held, it crosses a lane in about two seconds.
+WHEEL_TURN, WHEEL_RETURN = 2.2, 4.
+STEER_SETTLE = .7               # s
+ASSIST_GRIP = .8                # share of the tyre grip a firmware request may use
+NOZZLE_SIDE = 3.                # m/s² sideways on the flier's nozzles
+# The carriageway between the median barrier's foot and the guardrail (Highway3D),
+# from the middle lane's centre. A scrape slows the car; the drive goes on.
+ROAD_LEFT, ROAD_RIGHT = -6.68, 8.77
+BARRIER_DRAG = 3.               # m/s²
 # UN R13-H: regenerative braking above 1.3 m/s² lights the stop lamps.
 STOP_LAMP_DECEL = 1.3
 
@@ -60,7 +78,11 @@ SAFE_BRAKE = 4.                 # never force a follower to brake harder, m/s²
 CHANGE_THRESHOLD = .15          # advantage needed to change lanes, m/s²
 KEEP_RIGHT = .25                # bias toward the right lane: overtake on the left
 LANE_SPEEDS = (105., 90., 75.)  # mean desired km/h, left to right lane
-MAX_CARS = 12
+MAX_CARS = 16
+# What the corner radars cover, m.
+SENSOR_BEHIND, SENSOR_AHEAD, SENSOR_SIDE = 80., 12., 3.5
+# A blind zone's reach along the car from its centre: the mirror, and 3 m past the bumper.
+ZONE_FRONT, ZONE_BACK = 2.85, -7.5
 
 # Taklacı Güvercin: 600 L carbon tank of air at 700 bar, 15 °C (≈585 kg/m³),
 # expanded cold through the nozzles (exhaust ≈640 m/s, Isp ≈65 s).
@@ -82,6 +104,11 @@ HOP_HEIGHT, HOP_SHARE = .75, .5       # m apex, share of the lane change off the
 ROAD_ROLL, AIR_ROLL = .4, .6          # share of the lane change spent rolling
 HOP_AIR = 70. / AIR_ECONOMY     # kg a road takla burns (lift arc and side push)
 HARD_LANDING = 4.5              # m/s touchdown that wrecks the car
+
+
+def _hex12(value):
+    """A signed 12-bit field of the N: sample; -2048 is kept for 'no target'."""
+    return f'{_clamp(round(value), -2047, 2047) & 0xfff:03x}'
 
 
 @dataclass(frozen=True)
@@ -224,6 +251,8 @@ class GameConfig:
     duration: int = 120
     # The player's car; the Taklacı Güvercin flies on R/F and rolls between lanes.
     vehicle: str = 'sahin'
+    # Drivers who brake late for the player or cut in without looking.
+    surprises: bool = True
 
     def __post_init__(self):
         if self.mode not in MODES or not 0 <= self.target_kmh <= 216 or not 800 <= self.headway_ms <= 4000:
@@ -242,41 +271,45 @@ class GameConfig:
         """The card's AEB calibration: 95 % of the car's full braking, cm/s²."""
         return f'V:{min(1600, round(VEHICLES[self.vehicle].brake * 95))}'
 
+    def geometry(self):
+        """The car's half width for the card's lane keeping, cm."""
+        return f'W:{round(VEHICLES[self.vehicle].width * 50)}'
+
 
 class DriverInput:
-    """Physical aliases retain independent ownership; auto-repeat never steers or climbs."""
-    allowed = {'w', 'up', 's', 'down', 'space', 'a', 'left', 'd', 'right', 'r', 'f'}
+    """Physical aliases retain independent ownership; auto-repeat never signals or climbs."""
+    allowed = {'w', 'up', 's', 'down', 'space', 'a', 'left', 'd', 'right', 'r', 'f', 'q', 'e', 'z', 'x'}
+    pulses = {'q': ('signal', -1), 'e': ('signal', 1), 'z': ('takla', -1), 'x': ('takla', 1),
+              'r': ('layer', 1), 'f': ('layer', -1)}
 
     def __init__(self):
         self._lock = threading.Lock()
         self._held = set()
-        self._lanes = deque(maxlen=4)
-        self._layers = deque(maxlen=4)
+        self._queues = dict(signal=deque(maxlen=4), takla=deque(maxlen=4), layer=deque(maxlen=4))
 
     def key(self, key, pressed, repeat=False):
         if key not in self.allowed or repeat:
             return
         with self._lock:
             if pressed:
-                if key not in self._held and key in ('a', 'left', 'd', 'right'):
-                    self._lanes.append(-1 if key in ('a', 'left') else 1)
-                if key not in self._held and key in ('r', 'f'):
-                    self._layers.append(1 if key == 'r' else -1)
+                if key not in self._held and key in self.pulses:
+                    queue, value = self.pulses[key]
+                    self._queues[queue].append(value)
                 self._held.add(key)
             else:
                 self._held.discard(key)
 
     def sample(self):
         with self._lock:
-            lane = self._lanes.popleft() if self._lanes else 0
-            layer = self._layers.popleft() if self._layers else 0
-            return dict(gas=bool(self._held & {'w', 'up'}), brake=bool(self._held & {'s', 'down', 'space'}), lane=lane, layer=layer)
+            pulses = {name: queue.popleft() if queue else 0 for name, queue in self._queues.items()}
+            steer = int(bool(self._held & {'d', 'right'})) - int(bool(self._held & {'a', 'left'}))
+            return dict(gas=bool(self._held & {'w', 'up'}), brake=bool(self._held & {'s', 'down', 'space'}), steer=steer, **pulses)
 
     def release(self):
         with self._lock:
             self._held.clear()
-            self._lanes.clear()
-            self._layers.clear()
+            for queue in self._queues.values():
+                queue.clear()
 
 
 @dataclass
@@ -304,6 +337,9 @@ class TrafficCar:
     path_s: float = 0.
     steer_at: int = 0
     next_look: int = 0
+    distracted: float = 0.      # s to impact when it finally sees the player ahead; 0 is attentive
+    careless: bool = False      # this lane change does not look for the player
+    ease_until: int = 0         # eases off the pedal until then, ms
 
     def __post_init__(self):
         if self.desired < 0:
@@ -359,9 +395,15 @@ class TrafficWorld:
         self.gear, self.next_gear, self.shifting, self.shift_wait = 2, 2, 0., 0.
         self.lane = 1.
         self.target_lane = 1
-        self.path, self.path_s, self.path_time = None, 0., False
+        self.path, self.path_s = None, 0.
         self.lane_rate = self.lat_accel = 0.
-        self.signal = 0
+        self.wheel = 0.
+        self.steer_limit = LATERAL_BRISK
+        self.assist_steer = 0.
+        self.assist_bits = 0
+        self.scraping, self._scraped, self.scrapes = False, False, 0
+        self.signal, self.signal_from = 0, 1
+        self.sensors = dict(left=None, right=None, rear=None)
         self.collision = False
         self.cars = [TrafficCar(1, 1., 65., 55 / 3.6, kind='sedan', headway=1.3),          # jam tail: brakes at 3-7 s
                      TrafficCar(2, 0., 38., 65 / 3.6, kind='hatch', desired=100 / 3.6, changes=True),
@@ -369,12 +411,18 @@ class TrafficWorld:
                      TrafficCar(4, 2., 170., 70 / 3.6, kind='suv', desired=78 / 3.6, changes=True)]
         self.next_id = 5
         self.next_spawn = 6000
+        # Its own stream: the seed's regular traffic does not depend on what these do.
+        self.events = random.Random(config.seed * 7919 + 1)
+        self.next_chaser, self.next_ease = 5000, 8000
+        self.next_surprise = 18000 if config.surprises else 10 ** 9
         self.cutin_started = False
         self.warnings = 0
         self.interventions = 0
+        self.assists = 0
         self.near_misses = set()
         self._warning = False
         self._aeb = False
+        self._assisting = False
         self._warning_at = None
         self.reactions = []
         self.hard_brakes = 0
@@ -398,7 +446,7 @@ class TrafficWorld:
 
     @property
     def score(self):
-        return max(0, round(self.distance * 2) - len(self.near_misses) * 50 - int(self.collision) * 500 - self.hard_brakes * 5)
+        return max(0, round(self.distance * 2) - len(self.near_misses) * 50 - int(self.collision) * 500 - self.hard_brakes * 5 - self.scrapes * 25)
 
     @property
     def flight(self):
@@ -424,34 +472,33 @@ class TrafficWorld:
 
     # Driver commands -------------------------------------------------------
 
-    def steer(self, delta):
-        target = max(0, min(2, self.target_lane + delta))
-        if delta and target != self.target_lane:
-            self.target_lane = target
-            self._plan_lane_change()
+    def indicate(self, direction):
+        """Q / E: latches the indicator; the same key, or arriving in the lane, cancels it."""
+        if direction:
+            self.signal = 0 if self.signal == direction else direction
+            self.signal_from = self._nearest_lane()
 
-    def _plan_lane_change(self):
-        spec, v = self.spec, self.ego
-        x0, x1 = self.x, (self.target_lane - 1) * LANE
-        d = abs(x1 - x0)
-        vy, ay = self.lane_rate * LANE, self.lat_accel
-        if self.airborne and self.air <= self._reserve(self.altitude) + LANDING_MARGIN:
-            self.target_lane = round(self.lane)  # the reserve is kept for landing
+    def takla(self, delta):
+        """Z / X on the flier: a rolling jump to the next lane's centre, on air alone."""
+        if not delta or not self.flight:
             return
-        takla = spec.flight and (self.airborne or self.air >= self._reserve(0.) + HOP_AIR)
-        if takla:
-            # Thrusters carry it sideways whatever the road speed: plan in time.
-            duration = (AIR_CHANGE_TIME if self.airborne else HOP_TIME) * max(.5, d / LANE) ** .5
-            self.path, self.path_time = LaneChange(x0, vy, ay, x1, duration), True
-            if self.hop is None and d > LANE / 2:
-                self.hop = dict(start=self.tick, time=duration, sign=-1 if x1 > x0 else 1, ground=not self.airborne)
-        else:
-            grip = spec.grip * G * EVASIVE_GRIP
-            limit = grip if self._evasive() else min(LATERAL_BRISK, grip)
-            length = max(1.875 * d / math.tan(MAX_HEADING), v * math.sqrt(5.7735 * d / limit), v, 4.)
-            slope, curve = (vy / v, ay / (v * v)) if v > .5 else (0., 0.)
-            self.path, self.path_time = LaneChange(x0, slope, curve, x1, length), False
-        self.path_s = 0.
+        target = max(0, min(2, self.target_lane + delta))
+        if target == self.target_lane:
+            return
+        if self.air < self._reserve(self.altitude) + (LANDING_MARGIN if self.airborne else HOP_AIR):
+            self.air_refused = 1500  # the reserve is kept for landing
+            return
+        self.target_lane = target
+        x0, x1 = self.x, (target - 1) * LANE
+        d = abs(x1 - x0)
+        # Thrusters carry it sideways whatever the road speed: plan in time.
+        duration = (AIR_CHANGE_TIME if self.airborne else HOP_TIME) * max(.5, d / LANE) ** .5
+        self.path, self.path_s = LaneChange(x0, self.lane_rate * LANE, self.lat_accel, x1, duration), 0.
+        if self.hop is None and d > LANE / 2:
+            self.hop = dict(start=self.tick, time=duration, sign=-1 if x1 > x0 else 1, ground=not self.airborne)
+
+    def _nearest_lane(self):
+        return max(0, min(2, round(self.lane)))
 
     def _evasive(self):
         """Closing in on the car ahead: swerve with most of the grip."""
@@ -499,9 +546,70 @@ class TrafficWorld:
                 best, gap = car, g
         return best, max(0., gap)
 
+    def _course(self):
+        """Where the car is and where it is heading: a takla's lane, or a second ahead."""
+        if self.path:
+            return [self.x, (self.target_lane - 1) * LANE]
+        return [self.x, self.x + self.lane_rate * LANE] if abs(self.lane_rate * LANE) > .2 else [self.x]
+
     def front(self):
-        """The in-path target: the current lane, plus the lane being entered."""
-        return self._ahead([self.x] + ([(self.target_lane - 1) * LANE] if self.path else []))
+        """The in-path target: the car's spot, plus where it is heading."""
+        return self._ahead(self._course())
+
+    def sense(self):
+        """The corner radars: the likeliest threat on each side and straight behind."""
+        found = dict(left=None, right=None, rear=None)
+        if self.altitude < 2.5:
+            ranks = dict(left=math.inf, right=math.inf)
+            rear_gap = SENSOR_BEHIND
+            half = self.spec.width / 2
+            for car in self.cars:
+                along, across = car.z - self.distance, car.x - self.x
+                reach = (car.length + self.spec.length) / 2
+                clearance = abs(across) - car.width / 2 - half
+                closing = car.speed - self.ego
+                if abs(along) >= reach and clearance < .2:
+                    if along < 0 and -along - reach < rear_gap:
+                        rear_gap = -along - reach
+                        found['rear'] = dict(car=car, gap=-along - reach, closing=closing)
+                    continue
+                if clearance >= SENSOR_SIDE or not -SENSOR_BEHIND < along < SENSOR_AHEAD:
+                    continue
+                # Alongside or in the blind zone first, then whoever reaches it soonest.
+                if ZONE_BACK <= along <= max(ZONE_FRONT, reach + .7):
+                    rank = abs(along) / 1000
+                elif along < ZONE_BACK and closing > 0:
+                    rank = (ZONE_BACK - along) / closing
+                elif along > ZONE_FRONT:
+                    rank = 100 + along
+                else:
+                    continue
+                side = 'left' if across < 0 else 'right'
+                if rank < ranks[side]:
+                    ranks[side] = rank
+                    found[side] = dict(car=car, along=along, closing=closing, clearance=max(0., clearance))
+        self.sensors = found
+        return found
+
+    def surround_command(self, pedals):
+        """N: the side and rear sensors, the lane position and the driver's hands.
+        Twelve-bit fields in fixed-width hexadecimal keep it inside 39 characters."""
+        found = self.sense()
+        def side(target):
+            return (_hex12(target['along'] * 10) + _hex12(target['closing'] * 10) + f'{min(4095, round(target["clearance"] * 100)):03x}'
+                    if target else '800000000')
+        rear = found['rear']
+        lane = self._nearest_lane()
+        road = self.altitude < .02 and self.hop is None and self.path is None
+        flags = ({-1: 1, 0: 0, 1: 2}[pedals.get('steer', 0)] | {-1: 1, 0: 0, 1: 2}[self.signal] << 2 | int(road) << 4
+                 | int(pedals['brake']) << 5 | int(lane > 0) << 6 | int(lane < 2) << 7)
+        body = ('N:' + side(found['left']) + side(found['right'])
+                + (_hex12(rear['gap'] * 10) + _hex12(rear['closing'] * 10) if rear else '800000')
+                + _hex12((self.x - (lane - 1) * LANE) * 100) + _hex12(self.lane_rate * LANE * 100) + f'{flags:02x}')
+        command = body + f':{binascii.crc_hqx(body.encode("ascii"), 0xffff):04x}'
+        if len(command) > 39:
+            raise ProtocolError('Çevre ölçümü komut sınırını aştı')
+        return command
 
     def command(self, pedals):
         car, gap = self.front()
@@ -518,11 +626,20 @@ class TrafficWorld:
     def advance(self, control, pedals):
         if self.finished:
             return
-        a = control.get('a')
-        if type(a) is not int or not -1600 <= a <= 200:
+        a, st, bits = control.get('a'), control.get('st', 0), control.get('as', 0)
+        if (type(a) is not int or not -1600 <= a <= 800 or type(st) is not int or not -800 <= st <= 800
+                or type(bits) is not int or not 0 <= bits <= 127):
             raise ProtocolError('Geçersiz ADAS kontrol cevabı')
         warning = bool(control.get('warn')) and self.config.mode != 'off'
         aeb = self.config.mode == 'active' and control.get('mode') == 'AEB'
+        active = self.config.mode == 'active'
+        self.assist_steer = st / 100 if active else 0.
+        self.assist_bits = bits if self.config.mode != 'off' else 0
+        escape = active and bool(bits & (ASSIST_GAS | ASSIST_BRAKE))
+        assisting = active and bool(bits & (ASSIST_LANE | ASSIST_SIDE | ASSIST_GAS | ASSIST_BRAKE | ASSIST_EVADE))
+        if assisting and not self._assisting:
+            self.assists += 1
+        self._assisting = assisting
         if warning and not self._warning:
             self.warnings += 1
             self._warning_at = self.tick
@@ -534,14 +651,15 @@ class TrafficWorld:
         self._warning, self._aeb = warning, aeb
         if self.tick >= 10000 and not self.cutin_started:
             self._cut_in()
+        self._traffic_events()
         # Everyone decides on the state at the start of the step, then moves.
         old_distance, old_x, old_altitude = self.distance, self.x, self.altitude
         before = [(car, car.z, car.x) for car in self.cars]
         bodies = self._bodies()
         for car in self.cars:
             self._decide(car, bodies)
-        self._longitudinal(a / 100, aeb, pedals)
-        self._lateral(self.distance - old_distance)
+        self._longitudinal(a / 100, aeb, pedals, escape)
+        self._lateral(pedals.get('steer', 0))
         if self.flight:
             self._flight()
         for car in self.cars:
@@ -550,9 +668,10 @@ class TrafficWorld:
         self.tick += 50
         self._spawn()
 
-    def _longitudinal(self, request, aeb, pedals):
+    def _longitudinal(self, request, aeb, pedals, escape=False):
         spec, v, m = self.spec, self.ego, self.mass
-        gas, brake = pedals['gas'] and not pedals['brake'], pedals['brake']
+        # The firmware's escape floors the accelerator; the driver's brake always wins it.
+        gas, brake = (pedals['gas'] or (escape and request > 0)) and not pedals['brake'], pedals['brake']
         self.throttle = _toward(self.throttle, float(gas), THROTTLE_RATE)
         self.brake_pedal = _toward(self.brake_pedal, float(brake), BRAKE_RATE)
         drag = .5 * RHO * spec.cda * v * v
@@ -574,7 +693,7 @@ class TrafficWorld:
             if aeb:
                 # Emergency braking cuts the drive torque and overrides the accelerator.
                 drive, braking = 0., max(self.brake_pedal * m * spec.brake, -request * m - resist)
-            elif acc:
+            elif (escape and not brake) or acc:
                 need, coast = request * m + resist, self._coast()
                 drive = min(need, self._tractive(1.)) if need >= 0 else max(need, -coast)
                 braking = max(0., -need - coast)
@@ -650,26 +769,60 @@ class TrafficWorld:
             return (12 + .0035 * self._rpm(self.gear)) * spec.gears[self.gear] / spec.wheel_radius
         return min(spec.regen_force, spec.regen_power / max(v, .1)) * min(1., v / 3)
 
-    def _lateral(self, travelled):
-        if self.path is None:
-            self.lane_rate = self.lat_accel = self.side = 0.
-            self.signal = 0
+    def _lateral(self, steer):
+        spec, v = self.spec, self.ego
+        self.scraping = False
+        if self.path is not None:
+            self._takla_path()
             return
-        self.path_s += DT if self.path_time else travelled
-        x, d1, d2 = self.path.at(self.path_s)
-        if self.path_time:
-            vy, ay = d1, d2
+        self.wheel += _clamp(steer - self.wheel, -(WHEEL_TURN if steer else WHEEL_RETURN) * DT, (WHEEL_TURN if steer else WHEEL_RETURN) * DT)
+        # Tyres turn a moving car; in the air or near standstill the side nozzles push.
+        nozzles = self.flight and (self.airborne or v < 3)
+        if nozzles:
+            spare = not self.airborne or self.air > self._reserve(self.altitude) + LANDING_MARGIN
+            self.steer_limit = NOZZLE_SIDE if spare else 0.
+            demand = self.wheel * self.steer_limit
+            top = NOZZLE_SIDE * STEER_SETTLE
         else:
-            vy, ay = d1 * self.ego, d2 * self.ego * self.ego + d1 * self.acceleration
+            grip = spec.grip * G
+            self.steer_limit = grip * EVASIVE_GRIP if self._evasive() else min(LATERAL_BRISK, grip * EVASIVE_GRIP)
+            demand = _clamp(self.wheel * self.steer_limit + self.assist_steer, -grip * ASSIST_GRIP, grip * ASSIST_GRIP)
+            top = v * math.sin(MAX_HEADING)
+        vy = self.lane_rate * LANE
+        new = _clamp(vy + (demand - vy / STEER_SETTLE) * DT, -top, top)
+        x = self.x + (vy + new) / 2 * DT
+        low, high = ROAD_LEFT + spec.width / 2, ROAD_RIGHT - spec.width / 2
+        if not low <= x <= high:
+            x = _clamp(x, low, high)
+            new = 0.
+            # Over the barrier's top it only keeps the car above the carriageway.
+            if self.altitude < 1.:
+                self.scraping = True
+                self.ego = max(0., self.ego - BARRIER_DRAG * DT)
+        if self.scraping and not self._scraped:
+            self.scrapes += 1
+        self._scraped = self.scraping
+        self.lat_accel = (new - vy) / DT
+        self.lane_rate = new / LANE
+        self.lane = x / LANE + 1
+        self.target_lane = self._nearest_lane()
+        self.side = _clamp(self.lat_accel / 6, -1., 1.) if nozzles else 0.
+        if nozzles and self.airborne:
+            self._spend(self.mass * abs(demand))
+        if self.signal and self.target_lane == self.signal_from + self.signal:
+            if abs(x - (self.target_lane - 1) * LANE) <= (LANE - spec.width) / 2:
+                self.signal = 0  # arrived: the stalk cancels itself
+
+    def _takla_path(self):
+        self.path_s += DT
+        x, vy, ay = self.path.at(self.path_s)
         self.lane = x / LANE + 1
         self.lane_rate, self.lat_accel = vy / LANE, ay
+        self.wheel = 0.
         self.signal = (1 if self.path.end > x else -1) if abs(self.path.end - x) > .05 else 0
-        # Tyres turn a moving car; in the air or near standstill the side nozzles push.
-        if self.flight and (self.airborne or self.ego < 3):
-            self.side = _clamp(ay / 6, -1., 1.)
+        self.side = _clamp(ay / 6, -1., 1.) if self.airborne or self.ego < 3 else 0.
+        if self.side:
             self._spend(self.mass * abs(ay))
-        else:
-            self.side = 0.
         if self.path_s >= self.path.length:
             self.path = None
             self.lane = float(self.target_lane)
@@ -782,13 +935,20 @@ class TrafficWorld:
 
     def _decide(self, car, bodies):
         leader, gap = self._leader(car, bodies, self._lanes(car))
+        if car.distracted and leader is not None and leader.identity == 0:
+            closing = car.speed - leader.speed
+            if closing <= 0 or gap / closing > car.distracted:
+                leader = None  # eyes off the road: the player's car goes unseen for now
         accel = idm(car, leader, gap)
+        if self.tick < car.ease_until:
+            accel = min(accel, -1.)
         if car.identity == 1 and 3000 <= self.tick < 7000:
             # Scripted jam tail: a hard 6 m/s² stop down to walking pace.
             accel = min(accel, -6. if car.speed > 2 else 0.)
         car.command = _clamp(accel, -MAX_BRAKE, car.accel_max)
         if car.target_lane >= 0 and car.path is None and self.tick >= car.steer_at:
-            if car.changes and not self._safe(car, bodies, (car.target_lane - 1) * LANE):
+            seen = [body for body in bodies if body.identity != 0] if car.careless else bodies
+            if car.changes and not self._safe(car, seen, (car.target_lane - 1) * LANE):
                 car.target_lane, car.signal = -1, 0  # the gap closed while signalling
             else:
                 car.path = LaneChange(car.x, 0., 0., (car.target_lane - 1) * LANE,
@@ -873,6 +1033,7 @@ class TrafficWorld:
             car.lane_rate = slope * car.speed / LANE
             if car.path_s >= car.path.length:
                 car.lane, car.path, car.target_lane, car.signal, car.lane_rate = float(car.target_lane), None, -1, 0, 0.
+                car.careless = False
                 car.next_look = self.tick + 4000  # settle before the next decision
 
     def _contacts(self, old_distance, old_x, old_altitude, before):
@@ -902,14 +1063,56 @@ class TrafficWorld:
                 return name
         return 'sedan'
 
+    def _traffic_events(self):
+        """What keeps the road alive: chasers, drivers easing off, careless cut-ins."""
+        if self.tick >= self.next_chaser:
+            self._chaser()
+        rng = self.events
+        if self.tick >= self.next_ease:
+            self.next_ease = self.tick + rng.randrange(6000, 12050, 50)
+            ahead = [car for car in self.cars if car.z - self.distance > 20]
+            if ahead:
+                rng.choice(ahead).ease_until = self.tick + rng.randrange(2000, 3550, 50)
+        if self.tick >= self.next_surprise:
+            self.next_surprise = self.tick + rng.randrange(20000, 30050, 50)
+            own = self._nearest_lane()
+            near = [car for car in self.cars if car.changes and car.target_lane < 0 and abs(round(car.lane) - own) == 1
+                    and abs(car.lane - round(car.lane)) < .05 and -10 < car.z - self.distance < 14]
+            if near:
+                car = rng.choice(near)
+                car.careless, car.change_time, car.signal_lead = True, rng.uniform(2., 2.6), rng.uniform(.2, .4)
+                self._start_change(car, own)
+
+    def _chaser(self):
+        """Someone faster coming up from behind, whatever the player's own speed."""
+        rng = self.events
+        self.next_chaser = self.tick + rng.randrange(5000, 11050, 50)
+        pick = rng.random() * (1. if self.config.surprises else .92)
+        extra, lane, distracted = rng.uniform(15., 30.), rng.randrange(3), 0.
+        if pick >= .92:     # eyes off the road, in the player's own lane; brakes just in time if the player holds speed
+            extra, lane, distracted = rng.uniform(25., 50.), self._nearest_lane(), rng.uniform(1., 1.5)
+        elif pick >= .5:
+            extra = rng.uniform(30., 60.)
+        speed = min(MAX_SPEED - .1, max(self.ego, 70 / 3.6) + extra / 3.6)
+        z = self.distance - rng.uniform(110., 150.)
+        kind = rng.choice(('sedan', 'hatch', 'model3', 'suv', 'taxi'))
+        car = TrafficCar(self.next_id, float(lane), z, speed, kind=kind, headway=rng.uniform(.9, 1.2), accel_max=rng.uniform(2.5, 3.5),
+                         comfort=rng.uniform(3., 4.), politeness=rng.uniform(0., .1), changes=not distracted,
+                         change_time=rng.uniform(2.2, 3.), signal_lead=rng.uniform(.3, 1.), distracted=distracted)
+        if len(self.cars) >= MAX_CARS or any(abs(body.x - car.x) < 2.5 and abs(body.z - z) < max(25., 2.5 * speed) for body in self._bodies()):
+            return
+        self.cars.append(car)
+        self.next_id += 1
+
     def _spawn(self):
         self.cars = [car for car in self.cars if -160 < car.z - self.distance < 330]
-        if self.tick < self.next_spawn or len(self.cars) >= MAX_CARS:
+        # The last places are the chasers'.
+        if self.tick < self.next_spawn or len(self.cars) >= MAX_CARS - 2:
             return
         rng = self.rng
-        self.next_spawn += rng.randrange(3000, 6050, 50)
+        self.next_spawn += rng.randrange(2000, 4050, 50)
         lane, kind = rng.randrange(3), self._kind()
-        desired = _clamp(rng.gauss(LANE_SPEEDS[lane], 7.), 55., 130.) / 3.6
+        desired = _clamp(rng.gauss(LANE_SPEEDS[lane], 10.), 55., 140.) / 3.6
         # Faster traffic catches up from behind a slow player.
         behind = self.ego + 2 < .9 * desired
         z = self.distance + (rng.uniform(-140., -110.) if behind else rng.uniform(170., 240.))
@@ -930,9 +1133,18 @@ class TrafficWorld:
 
     def snapshot(self, control):
         car, gap = self.front()
+        limit = max(self.steer_limit, 1.)
+        watching = self.config.mode != 'off'
+        ids = {name: target['car'].identity if target else -1 for name, target in self.sensors.items()}
         return dict(elapsed=self.seconds, remaining=max(0., self.config.duration - self.seconds),
-                    distance=self.distance, egoKmh=self.ego * 3.6, egoLane=self.lane, targetLane=self.target_lane,
+                    distance=self.distance, egoKmh=self.ego * 3.6, egoLane=self.lane,
+                    # Where the car is heading, a second ahead while it moves sideways.
+                    targetLane=float(self.target_lane) if self.path else self.lane + self.lane_rate,
                     egoLaneRate=self.lane_rate, egoLatAccel=self.lat_accel, egoSignal=self.signal,
+                    wheel=_clamp(self.wheel + self.assist_steer / limit, -1.5, 1.5), assistBits=self.assist_bits, assists=self.assists,
+                    blindLeft=control.get('bl', 0) if watching else 0, blindRight=control.get('br', 0) if watching else 0,
+                    rearThreat=control.get('rr', 0) if watching else 0, sensorLeft=ids['left'], sensorRight=ids['right'],
+                    sensorRear=ids['rear'], scraping=self.scraping,
                     egoBraking=self.braking, vehicle=self.config.vehicle, gear=self.gear + 1 if self.spec.gears else 0,
                     accelMps2=self.acceleration, gap=gap if car else -1., ttc=float(control.get('ttc', -1)) / 1000 if self.config.mode != 'off' and control.get('ttc', -1) >= 0 else -1.,
                     warning=bool(control.get('warn')) and self.config.mode != 'off',
@@ -966,8 +1178,8 @@ class GameRunner:
 
     def run(self):
         current = self.device.current or {}
-        if current.get('app') != 'ADASLab' or current.get('version', 0) < 2:
-            raise ProtocolError('Trafik oyunu için ADASLab v2 firmware’i gerekli.')
+        if current.get('app') != 'ADASLab' or current.get('version', 0) < GAME_FIRMWARE:
+            raise ProtocolError(f'Trafik oyunu için ADASLab v{GAME_FIRMWARE} firmware’i gerekli.')
         try:
             self.device.runtime('RESET')
             # A watch-owned session has already read its exact configuration
@@ -981,14 +1193,20 @@ class GameRunner:
             calibrated = self.device.runtime(self.config.calibration()).get('state', {}).get('error')
             if calibrated and calibrated != 'unsupported_command':
                 raise ProtocolError('Kart araç fren ayarını kabul etmedi.')
+            if self.device.runtime(self.config.geometry()).get('state', {}).get('error'):
+                raise ProtocolError('Kart araç genişliğini kabul etmedi.')
             self.device.runtime('H:1')
             if not self._climb():
                 return self.last_response
             while not self.stop.is_set() and not self.world.finished:
                 started = time.monotonic()
                 pedals = self.inputs.sample()
-                self.world.steer(pedals['lane'])
+                self.world.indicate(pedals['signal'])
+                self.world.takla(pedals['takla'])
                 self.world.fly(pedals['layer'])
+                surround = self.device.runtime(self.world.surround_command(pedals), timeout=.6)
+                if surround.get('state', {}).get('error'):
+                    raise ProtocolError('Çevre ölçümü doğrulanamadı: ' + str(surround['state']))
                 response = self.device.runtime(self.world.command(pedals), timeout=.6)
                 self.last_response = response
                 control = response.get('state', {})
@@ -1009,7 +1227,8 @@ class GameRunner:
                 self.rows.append(dict(sim_s=self.world.seconds, mode=self.config.mode, seed=self.config.seed,
                     vehicle=self.config.vehicle, ego_kmh=self.world.ego*3.6, lane=self.world.lane, gap_m=snapshot['gap'],
                     accel_mps2=self.world.acceleration, altitude_m=self.world.altitude, warning=snapshot['warning'],
-                    aeb=snapshot['aeb'], score=self.world.score, rtt_ms=round(rtt, 2)))
+                    aeb=snapshot['aeb'], blind_left=snapshot['blindLeft'], blind_right=snapshot['blindRight'],
+                    rear=snapshot['rearThreat'], assist=snapshot['assistBits'], score=self.world.score, rtt_ms=round(rtt, 2)))
                 self.emit(dict(response=response, game=snapshot, status=status))
                 if self.stop.wait(max(0., self.world.dt-(time.monotonic()-started))):
                     break

@@ -1,4 +1,4 @@
-"""Exercise already-installed ADASLab v2 via UART; never programs Flash.
+"""Exercise already-installed ADASLab v3 via UART; never programs Flash.
 
 Real MCU/GPU counters are checked. Keyboard/finger actions are covered separately
 by Qt/ARM tests; this tool supplies deterministic driver inputs to the game plant.
@@ -28,18 +28,18 @@ def main():
     d=Device(args.port)
     try:
         hello=d.detect()
-        check((hello['app'],hello['id'],hello['version'])==('ADASLab',3,2) and hello['boot_version']>=2,
-              'Physical ADASLab v2 runs under DeviceBoot v2 or later')
+        check((hello['app'],hello['id'],hello['version'])==('ADASLab',3,3) and hello['boot_version']>=2,
+              'Physical ADASLab v3 runs under DeviceBoot v2 or later')
         for mode in ('active','warn','off'):
-            cfg=GameConfig(mode=mode,seed=42,duration=12)
-            world=TrafficWorld(cfg);d.runtime('RESET');d.runtime(cfg.command());d.runtime(cfg.calibration());d.runtime('H:1')
-            times=[];initial=None;latest={};no_actuation=True
+            cfg=GameConfig(mode=mode,seed=42,duration=12,surprises=False)
+            world=TrafficWorld(cfg);d.runtime('RESET');d.runtime(cfg.command());d.runtime(cfg.calibration());d.runtime(cfg.geometry());d.runtime('H:1')
+            times=[];initial=d.runtime('J')['state'];latest={};no_actuation=True
             for _ in range(240):
                 started=time.monotonic();pedals=dict(gas=True,brake=False)
+                assert not d.runtime(world.surround_command(pedals),timeout=.8)['state']['error']
                 latest=d.runtime(world.command(pedals),timeout=.8)['state']
                 times.append((time.monotonic()-started)*1000)
                 assert not latest['error'] and latest['fresh'] and latest['ms']==world.tick
-                if initial is None:initial=latest
                 no_actuation &= latest['a']==0
                 world.advance(latest,pedals)
                 if world.finished:break
@@ -47,15 +47,16 @@ def main():
             if mode=='active':check(not world.collision and world.interventions>0,'Active AEB brakes against held W and avoids defined braking traffic')
             elif mode=='warn':check(world.collision and world.warnings>0 and world.interventions==0 and no_actuation,'Warning mode alerts without applying the brake')
             else:check(world.collision and world.warnings==0 and world.interventions==0 and no_actuation,'Off mode suppresses warnings and intervention')
-            check(latest['gpu']>initial['gpu'] and latest['frames']>initial['frames'],mode+': real GPU completion and LCD frame counters advance')
+            final=d.runtime('J')['state']
+            check(final['gpu']>initial['gpu'] and final['frames']>initial['frames'],mode+': real GPU completion and LCD frame counters advance')
             row=dict(mode=mode,seconds=world.seconds,collision=world.collision,warnings=world.warnings,
                      interventions=world.interventions,rtt_mean_ms=round(statistics.mean(times),2),
                      rtt_max_ms=round(max(times),2),deadline_overruns=sum(t>50 for t in times),
-                     compute_max_us=latest['us'],gpu=latest['gpu'],frames=latest['frames'])
+                     compute_max_us=final['us'],gpu=final['gpu'],frames=final['frames'])
             report['scenarios'].append(row);print(json.dumps(row),flush=True)
             paused=d.runtime('H:0')['state'];d.runtime('PAUSE')
             check(not paused['grun'] and paused['a']==0,mode+': pause clears physical controller output')
-        cfg=GameConfig(mode='active',acc=True,duration=12)
+        cfg=GameConfig(mode='active',acc=True,duration=12,surprises=False)
         world=TrafficWorld(cfg);world.cars=[];start_speed=world.ego
         d.runtime('RESET');d.runtime(cfg.command());d.runtime(cfg.calibration());d.runtime('H:1')
         no_pedals=dict(gas=False,brake=False)
