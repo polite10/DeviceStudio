@@ -46,7 +46,7 @@ def main():
     d=Device(args.port)
     try:
         identity=d.detect();state=d.runtime('J')['state']
-        assert identity['app']=='ADASLab' and identity['version']==2
+        assert identity['app']=='ADASLab' and identity['version']>=2
         assert state['a']==0 and not state['grun'],'Game exit left controller running'
     finally:d.close()
     report=dict(passed=True,application=str(app),bundle_id=info['CFBundleIdentifier'],version=info.get('CFBundleShortVersionString'),

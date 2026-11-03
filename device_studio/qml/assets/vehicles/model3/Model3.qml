@@ -12,6 +12,7 @@ Node {
     property bool braking: false
     property real lamps: 0.35
     property real wheelAngle: 0
+    property real steerAngle: 0
     // Positive pitch dives the nose; positive roll leans toward the car's right.
     property real bodyPitch: 0
     property real bodyRoll: 0
@@ -85,7 +86,7 @@ Node {
         delegate: Node {
             required property var modelData
             position: Qt.vector3d(modelData[0], 0.334, modelData[1])
-            eulerRotation.x: -root.wheelAngle
+            eulerRotation: Qt.vector3d(-root.wheelAngle, modelData[1] > 0 ? root.steerAngle : 0, 0)
             Model { source: "meshes/model3WheelAero_mesh.mesh"; materials: aeroMaterial }
             Model { source: "meshes/model3WheelAeroAccent_mesh.mesh"; materials: aeroAccentMaterial }
             Model { source: "meshes/model3WheelCap_mesh.mesh"; materials: capMaterial }

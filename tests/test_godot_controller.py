@@ -29,7 +29,7 @@ class GameDevice:
         state=dict(mode='MONITOR',ego=int(fields[2]) if sample else 0,lead=0,gap=10000,ttc=-1,a=0,warn=False,
                    fresh=sample,ms=int(fields[1]) if sample else 0,error='',gmode=self.mode,gacc=bool(self.acc),
                    gtarget=self.target,gheadway=self.headway,grun=self.running,grev=0)
-        self.current=dict(app='ADASLab',id=3,version=2,boot=1,boot_version=2,state=state)
+        self.current=dict(app='ADASLab',id=3,version=3,boot=1,boot_version=2,state=state)
         return self.current
 
 

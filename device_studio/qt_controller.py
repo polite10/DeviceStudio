@@ -22,7 +22,8 @@ import serial.tools.list_ports
 from .connection import Device
 from .protocol import Firmware, ProtocolError
 from .adas_sim import Config, Runner, SCENARIOS
-from .game_sim import AIR_FULL, LAUNCH_SECONDS, VEHICLES, GameConfig, GameRunner, DriverInput, MODES, MODE_NAMES
+from .game_sim import (AIR_FULL, GAME_FIRMWARE, LAUNCH_SECONDS, VEHICLES, GameConfig, GameRunner, DriverInput, MODES, MODE_NAMES,
+                       TrafficWorld)
 from . import programmer
 from .godot_bridge import GodotBridge, find_godot
 
@@ -85,7 +86,7 @@ class StudioController(QObject):
         self._game3d_last_send = 0.
         self._game = dict(connected=False, ready=False, running=False, mode='active', accEnabled=False,
                           targetKmh=90, headwayMs=1800, seed=42, status='ready',
-                          hint='ADASLab v2 firmware’ine bağlanın. WASD veya yön tuşlarıyla sürün.',
+                          hint=f'ADASLab v{GAME_FIRMWARE} firmware’ine bağlanın. WASD veya yön tuşlarıyla sürün.',
                           elapsed=0., remaining=120., distance=0., egoKmh=0., egoLane=1., targetLane=1,
                           accelMps2=0., ttc=-1., gap=-1., warning=False, aeb=False, traffic=[],
                           score=0, collisions=0, nearMisses=0, warnings=0, interventions=0,
@@ -94,6 +95,8 @@ class StudioController(QObject):
                           flight=False, layer=0, altitude=0., roll=0., lift=0., boost=0., retro=0., side=0.,
                           air=0., airFull=0., autoLand=False, airLow=False, landingBlocked=False,
                           launching=False, launchSeconds=LAUNCH_SECONDS,
+                          wheel=0., assistBits=0, assists=0, blindLeft=0, blindRight=0, rearThreat=0,
+                          sensorLeft=-1, sensorRight=-1, sensorRear=-1, scraping=False,
                           renderer3dAvailable=find_godot(ROOT) is not None,
                           renderer3dConnected=False, renderer3dMessage='3B sürüş penceresi kapalı')
         self._cancel = threading.Event()
@@ -300,9 +303,9 @@ class StudioController(QObject):
             return
         self._state.update(connected=True, app=app, appVersion=str(response.get('version', '')),
                            connectionText='Bağlı', appState=json.dumps(response.get('state', {}), ensure_ascii=False, indent=2))
-        self._game.update(connected=app == 'ADASLab', ready=app == 'ADASLab' and response.get('version', 0) >= 2)
-        self._game['hint'] = ('W / ↑ gaz · S / ↓ / Boşluk fren · A–D / ← → şerit · Esc duraklat' if self._game['ready']
-                              else '3B sürüş için ADASLab v2 firmware’ini yükleyin.')
+        self._game.update(connected=app == 'ADASLab', ready=app == 'ADASLab' and response.get('version', 0) >= GAME_FIRMWARE)
+        self._game['hint'] = ('W / ↑ gaz · S / ↓ / Boşluk fren · A–D / ← → direksiyon · Q / E sinyal · Esc duraklat' if self._game['ready']
+                              else f'3B sürüş için ADASLab v{GAME_FIRMWARE} firmware’ini yükleyin.')
         if response.get('backend') == 'ARM_SIM':
             self._state['backendLabel'] = 'ARM simülasyonu · fiziksel kart kullanılmıyor'
         if app == 'DeviceBoot':
@@ -315,12 +318,15 @@ class StudioController(QObject):
             s = response.get('state', {})
             t = dict(self._state['telemetry'])
             mode = s.get('mode', 'WAITING')
+            # A drive's compact T: reply leaves out what the plant already knows.
+            if 'ego' in s:
+                t.update(egoKmh=float(s['ego']) * .036, leadKmh=float(s.get('lead', 0)) * .036, gapM=float(s.get('gap', 0)) / 100,
+                         computeUs=int(s.get('us', 0)), gpu=int(s.get('gpu', 0)), frames=int(s.get('frames', 0)),
+                         frameMaxMs=int(s.get('frame_max_ms', 0)))
             t.update(mode=mode, modeLabel=MODE_LABELS.get(mode, mode),
-                     egoKmh=float(s.get('ego', 0)) * .036, leadKmh=float(s.get('lead', 0)) * .036,
-                     gapM=float(s.get('gap', 0)) / 100, ttcSeconds=float(s.get('ttc', -1)) / 1000 if s.get('ttc', -1) >= 0 else -1.,
+                     ttcSeconds=float(s.get('ttc', -1)) / 1000 if s.get('ttc', -1) >= 0 else -1.,
                      accelMps2=float(s.get('a', 0)) / 100, simSeconds=float(s.get('ms', 0)) / 1000,
-                     computeUs=int(s.get('us', 0)), gpu=int(s.get('gpu', 0)), frames=int(s.get('frames', 0)),
-                     frameMaxMs=int(s.get('frame_max_ms', 0)), fresh=bool(s.get('fresh', False)),
+                     fresh=bool(s.get('fresh', False)),
                      present=mode != 'WAITING' and (self._state['scenario'] != 'cutin' or s.get('ms', 0) >= 3000))
             if t['collision']:
                 t.update(mode='COLLISION', modeLabel='Çarpışma · deney sonlandı')
@@ -797,7 +803,7 @@ class StudioController(QObject):
         if not self._require_device(runtime=True):
             return
         if not self._game['ready']:
-            self._message('Oyun için ADASLab v2 firmware’ini yükleyin.', 'warning')
+            self._message(f'Oyun için ADASLab v{GAME_FIRMWARE} firmware’ini yükleyin.', 'warning')
             return
         self._drop_queued_starts()
         config = self._game_config()
@@ -854,6 +860,18 @@ class StudioController(QObject):
         if self._idle():
             self._game_world = None
             self.startGame()
+
+    @Slot()
+    def chooseNewCar(self):
+        """The pause menu's restart: leaves the paused road and goes back to the car picker."""
+        if self._defer_if_heartbeat(self.chooseNewCar):
+            return
+        if not self._idle() or self._game['running']:
+            return
+        self._game_inputs.release()
+        self._game_world = None
+        self._game.update(TrafficWorld(self._game_config()).snapshot({}), status='ready', traffic=[], launching=False)
+        self._publish()
 
     @Slot(str, bool, bool)
     def gameKey(self, key, pressed, auto_repeat=False):

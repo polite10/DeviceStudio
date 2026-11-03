@@ -1,7 +1,7 @@
 """Run the real Godot client/input handlers against Studio and ADASLab firmware.
 
 Defaults to headless Godot and compiled ARM simulation. --visible renders a real
-window; --backend hardware requires an already-installed v2 board and never
+window; --backend hardware requires an already-installed v3 board and never
 programs Flash. Run the project's Godot import before this verifier.
 """
 import argparse
@@ -58,7 +58,7 @@ def main():
             controller.selectPort(index)
         controller.connectDevice()
         pump_until(lambda:not controller.state['busy'],'Firmware connection timed out',20)
-        check(controller.gameState['ready'],'ADASLab v2 is connected before launching Godot')
+        check(controller.gameState['ready'],'ADASLab v3 is connected before launching Godot')
         device=controller._device
         original_runtime=device.runtime
         def record_runtime(command,**kwargs):

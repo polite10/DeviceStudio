@@ -10,6 +10,8 @@ Node {
     property bool braking: false
     property real lamps: 0.35
     property real wheelAngle: 0
+    // Yaw of the front wheels in degrees; positive turns them to the car's left.
+    property real steerAngle: 0
     property real bodyPitch: 0
     property real bodyRoll: 0
     // -1 left, 1 right. Every car blinks on the shared relay phase.
@@ -105,6 +107,7 @@ Node {
     Binding { target: mesh.item; property: "braking"; value: vehicle.braking; when: mesh.item !== null }
     Binding { target: mesh.item; property: "lamps"; value: vehicle.lamps; when: mesh.item !== null }
     Binding { target: mesh.item; property: "wheelAngle"; value: vehicle.wheelAngle; when: mesh.item !== null }
+    Binding { target: mesh.item; property: "steerAngle"; value: vehicle.steerAngle; when: mesh.item !== null }
     Binding { target: mesh.item; property: "bodyPitch"; value: vehicle.bodyPitch; when: mesh.item !== null }
     Binding { target: mesh.item; property: "bodyRoll"; value: vehicle.bodyRoll; when: mesh.item !== null }
     Binding { target: mesh.item; property: "thrust"; value: vehicle.thrust; when: vehicle.jets && mesh.item !== null && "thrust" in mesh.item }

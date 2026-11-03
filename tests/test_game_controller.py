@@ -27,7 +27,7 @@ class PanelDevice:
         s=dict(mode='MONITOR',ego=int(fields[2]) if sample else 0,lead=0,gap=10000,ttc=-1,a=0,warn=False,
                fresh=sample,ms=int(fields[1]) if sample else 0,error='',gmode=self.mode,gacc=self.acc,
                gtarget=self.target,gheadway=self.headway,grun=self.running,grev=self.revision)
-        self.current=dict(app='ADASLab',id=3,version=2,boot=1,boot_version=2,state=s)
+        self.current=dict(app='ADASLab',id=3,version=3,boot=1,boot_version=2,state=s)
         return self.current
 
 
@@ -50,13 +50,13 @@ class GameControllerTests(unittest.TestCase):
         self.controller.pauseGame();self.wait(lambda:not self.controller.state['busy'])
         self.controller.requestClose();self.controller.deleteLater()
         self.qt.sendPostedEvents(None,QEvent.Type.DeferredDelete);self.qt.processEvents()
-    def test_version_two_routes_to_game_and_keyboard_moves_player(self):
+    def test_version_three_routes_to_game_and_keyboard_moves_player(self):
         self.assertEqual(self.controller.state['page'],'game')
         self.assertTrue(self.controller.gameState['ready'])
         self.controller.startGame();self.wait(lambda:self.controller.gameState['elapsed']>=.1)
         speed=self.controller.gameState['egoKmh']
         self.controller.gameKey('w',True,False);self.controller.gameKey('a',True,False)
-        self.wait(lambda:self.controller.gameState['egoKmh']>speed and self.controller.gameState['targetLane']==0)
+        self.wait(lambda:self.controller.gameState['egoKmh']>speed and self.controller.gameState['egoLane']<.98)
     def test_focus_loss_pauses_and_does_not_leave_stuck_throttle(self):
         self.controller.startGame();self.wait(lambda:self.controller.gameState['elapsed']>=.1)
         self.controller.gameKey('w',True,False);self.controller.focusLost()
@@ -233,6 +233,27 @@ class GameControllerTests(unittest.TestCase):
             self.assertEqual(self.controller.gameState['status'],'paused')
             self.controller.requestGameStart();self.wait(lambda:self.controller.gameState['running'])
             self.assertFalse(self.controller.gameState['launching'])
+    def test_pause_menu_restart_goes_back_to_choosing_a_car(self):
+        self.controller.requestGameStart();self.wait(lambda:self.controller.gameState['elapsed']>=.2)
+        self.controller.pauseGame();self.wait(lambda:not self.controller.state['busy'])
+        self.assertEqual(self.controller.gameState['status'],'paused')
+        self.controller.chooseNewCar();self.wait(lambda:self.controller.gameState['status']=='ready')
+        game=self.controller.gameState
+        self.assertEqual((game['elapsed'],game['distance'],game['traffic'],game['running']),(0.,0.,[],False))
+        self.assertIsNone(self.controller._game_world)
+        self.assertFalse(self.device.running,'The watch stays stopped until the next start')
+        # A car can be chosen again, and the next start is a new road.
+        self.controller.setVehicle('model3')
+        self.assertEqual(self.controller.gameState['vehicle'],'model3')
+        self.device.calls.clear()
+        self.controller.requestGameStart();self.wait(lambda:self.controller.gameState['elapsed']>=.1)
+        self.assertLess(self.controller.gameState['elapsed'],1)
+        self.assertIn('W:92',self.device.calls)
+    def test_pause_menu_restart_is_ignored_while_driving(self):
+        self.controller.requestGameStart();self.wait(lambda:self.controller.gameState['elapsed']>=.2)
+        self.controller.chooseNewCar()
+        self.assertEqual(self.controller.gameState['status'],'running')
+        self.assertIsNotNone(self.controller._game_world)
     def test_navigation_away_pauses_game_and_releases_keys(self):
         self.controller.startGame();self.wait(lambda:self.controller.gameState['elapsed']>=.1)
         self.controller.gameKey('w',True,False);self.controller.navigate('firmware')

@@ -2,8 +2,9 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Shapes
 
-// Top-down sensor view: three lanes, the ego car and every tracked vehicle up
-// to 110 m ahead. Positions are pushed each display frame by Drive3DView.
+// Top-down sensor view: three lanes, the ego car, every tracked vehicle up to
+// 110 m ahead and, on a tighter scale, 60 m behind, with the blind zones beside the
+// car. Positions are pushed each display frame by Drive3DView.
 Item {
     id: radar
     objectName: "driveRadar"
@@ -12,12 +13,16 @@ Item {
     property string gapText: "—"
     property string ttcText: "—"
     property string relativeText: "—"
+    property int blindLeft: 0
+    property int blindRight: 0
+    property int rearThreat: 0
     readonly property real range: 110
+    readonly property real rearRange: 60
     readonly property real laneWidth: 34
     implicitWidth: 206
     implicitHeight: 262
 
-    // cars: [{lane, ahead (m, centre), lead, braking}] for up to 12 tracked cars.
+    // cars: [{lane, ahead (m, centre), lead, braking, watched}] for up to 16 tracked cars.
     property var cars: []
     function place(list) { radar.cars = list }
 
@@ -32,8 +37,10 @@ Item {
         id: plot
         x: 10; y: 32; width: parent.width - 20; height: parent.height - 92
         clip: true
-        readonly property real egoY: height - 26
+        readonly property real egoY: height - 42
         readonly property real pxPerMetre: (egoY - 8) / radar.range
+        readonly property real pxPerMetreBehind: 42 / radar.rearRange
+        function yOf(ahead) { return egoY - ahead * (ahead > 0 ? pxPerMetre : pxPerMetreBehind) }
         Repeater {
             model: [25, 50, 75, 100]
             delegate: Item {
@@ -80,17 +87,40 @@ Item {
             }
         }
         Repeater {
+            model: [-1, 1]
+            delegate: Rectangle {
+                required property int modelData
+                readonly property int level: modelData < 0 ? radar.blindLeft : radar.blindRight
+                readonly property color ink: level > 1 ? "#ff4a58" : "#ffb52e"
+                visible: level > 0
+                x: plot.width / 2 + (radar.egoLane - 1) * radar.laneWidth + modelData * radar.laneWidth * 0.86 - width / 2
+                y: plot.egoY - 12
+                width: radar.laneWidth * 0.62; height: 26; radius: 4
+                color: Qt.rgba(ink.r, ink.g, ink.b, 0.28)
+                border.width: 1; border.color: ink
+            }
+        }
+        Rectangle {
+            visible: radar.rearThreat > 0
+            x: plot.width / 2 + (radar.egoLane - 1) * radar.laneWidth - width / 2
+            y: plot.egoY + 14
+            width: 18; height: 28; radius: 4
+            readonly property color ink: radar.rearThreat > 1 ? "#ff4a58" : "#ffb52e"
+            color: Qt.rgba(ink.r, ink.g, ink.b, 0.28)
+            border.width: 1; border.color: ink
+        }
+        Repeater {
             id: marks
-            model: 12
+            model: 16
             delegate: Rectangle {
                 id: mark
                 required property int index
                 readonly property var car: radar.cars[index] || null
-                visible: car !== null && car.ahead > -18 && car.ahead < radar.range
+                visible: car !== null && car.ahead > -radar.rearRange && car.ahead < radar.range
                 x: car ? plot.width / 2 + (car.lane - 1) * radar.laneWidth - width / 2 : 0
-                y: car ? plot.egoY - car.ahead * plot.pxPerMetre - height / 2 : 0
+                y: car ? plot.yOf(car.ahead) - height / 2 : 0
                 width: 15; height: 25; radius: 4
-                color: car && car.lead ? radar.signal : "#8aa2b1"
+                color: car && car.lead ? radar.signal : car && car.watched ? "#ffb52e" : "#8aa2b1"
                 border.width: car && car.lead ? 2 : 0
                 border.color: Qt.lighter(radar.signal, 1.3)
                 Rectangle {

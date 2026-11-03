@@ -12,7 +12,7 @@ import threading
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from device_studio.adas_arm import ArmDevice
-from device_studio.game_sim import GameConfig,TrafficWorld,TrafficCar,DriverInput,GameRunner,MODES
+from device_studio.game_sim import GameConfig,LANE,TrafficWorld,TrafficCar,DriverInput,GameRunner,MODES
 
 
 class CheckedArm(ArmDevice):
@@ -40,7 +40,7 @@ def main():
         checks.append(message);print('PASS: '+message,flush=True)
     def device():
         d=CheckedArm(args.elf)
-        assert d.current.get('version',0)>=2,'Build ADASLab game firmware v2 first'
+        assert d.current.get('version',0)>=3,'Build ADASLab game firmware v3 first'
         return d
     def finish(d):
         limits[0]=max(limits[0],d.max_command);limits[1]=max(limits[1],d.max_reply)
@@ -50,14 +50,15 @@ def main():
     for road in ('scheduled-brake','constant-slow-target'):
         rows={}
         for mode in MODES:
-            d=device();config=GameConfig(mode=mode,duration=25,seed=42)
-            world=TrafficWorld(config)
+            d=device();config=GameConfig(mode=mode,duration=25,seed=42,surprises=False)
+            world=TrafficWorld(config);world.next_chaser=10**9
             if road=='constant-slow-target':world.cars=[TrafficCar(9,1.,45.,10.)]
-            d.runtime('RESET');d.runtime(config.command());d.runtime(config.calibration());d.runtime('H:1')
+            d.runtime('RESET');d.runtime(config.command());d.runtime(config.calibration());d.runtime(config.geometry());d.runtime('H:1')
             minimum=1000.;brake_override=False;no_assist=True
             try:
                 for _ in range(500):
                     pedals=dict(gas=True,brake=False)
+                    d.runtime(world.surround_command(pedals))
                     response=d.runtime(world.command(pedals));state=response['state']
                     assert not state['error'] and state['fresh'] and state['grun']
                     assert state['ms']==world.tick and state['gmode']==MODES[mode]
@@ -83,6 +84,106 @@ def main():
             finally:finish(d)
         check(rows['warn']['seconds']==rows['off']['seconds'],road+': warning/off physics match for the same player inputs')
     # Pause/resume resets the controller sample clock but preserves road state.
+    def drive(config,setup,steps,pedals=lambda world,step:dict(gas=False,brake=False)):
+        """A defined road against the real controller; yields each step's state."""
+        d=device();world=TrafficWorld(config)
+        world.cars,world.next_spawn,world.next_chaser,world.next_ease,world.next_surprise=[],10**9,10**9,10**9,10**9
+        setup(world)
+        rows=[]
+        try:
+            d.runtime('RESET');d.runtime(config.command());d.runtime(config.calibration());d.runtime(config.geometry());d.runtime('H:1')
+            for step in range(steps):
+                now=pedals(world,step)
+                assert not d.runtime(world.surround_command(now))['state']['error']
+                state=d.runtime(world.command(now))['state']
+                assert not state['error'] and state['fresh'] and state['ms']==world.tick
+                world.advance(state,now);rows.append(dict(state))
+                if world.finished:break
+            return world,rows
+        finally:finish(d)
+    def steering(direction,gas=False):return dict(gas=gas,brake=False,steer=direction)
+    def report_row(name,world,rows):
+        row=dict(road=name,seconds=world.seconds,lane=round(world.lane,3),speed_kmh=round(world.ego*3.6,1),collision=world.collision,
+                 assists=world.assists,assist_bits=sorted({r['as'] for r in rows}))
+        scenarios.append(row);print(json.dumps(row),flush=True)
+    def fast(world):world.ego=90/3.6
+    # Lane keeping: released it comes back, held on it lets go, signalled it stays out.
+    active=GameConfig(mode='active',duration=60,vehicle='model3',surprises=False)
+    world,rows=drive(active,fast,200,lambda world,step:steering(1 if step<14 else 0))
+    edges=[(r['st'],r['as']) for r in rows]
+    check(any(st<0 and bits&1 for st,bits in edges),'Hands off after a push toward the line: lane keeping steers back')
+    check(not any(r['as']&32 for r in rows) and world.target_lane==1,'A short push never crosses: the car stays in its lane')
+    check(max(rows[i]['st'] for i in range(len(rows)))<=0 and abs(world.x)<(LANE-world.spec.width)/2,'The car ends inside the lane with the wheel quiet')
+    report_row('lane-keep-return',world,rows)
+    world,rows=drive(active,fast,140,lambda world,step:steering(1))
+    resisted=[i for i,r in enumerate(rows) if r['as']&1]
+    took=next(i for i,r in enumerate(rows) if r['as']&32)
+    check(resisted and 15<=took-resisted[0]<=25,'Holding the wheel against it: it resists for a second, then lets go: '+str(took-resisted[0]))
+    check(world.lane>1.5,'Held on, the car changes lanes without a signal: '+str(round(world.lane,3)))
+    report_row('lane-keep-override',world,rows)
+    world,rows=drive(active,fast,260,lambda world,step:steering(1 if step<46 else 0))
+    check(any(r['as']&32 for r in rows) and any(r['as']&1 for r in rows[46:]),'Released on the line after an override: it steers again')
+    check(abs(world.lane-round(world.lane))<(LANE-world.spec.width)/2/LANE and not rows[-1]['as'],'and the car settles inside the nearest lane: '+str(round(world.lane,3)))
+    report_row('lane-keep-release-on-line',world,rows)
+    def signalled(world):
+        fast(world);world.indicate(1)
+    world,rows=drive(active,signalled,120,lambda world,step:steering(1 if world.signal else 0))
+    check(not any(r['as']&1 for r in rows[:30]) and world.signal==0 and world.target_lane==2,'With the indicator on: a lane change without resistance, the stalk cancels on arrival')
+    report_row('signalled-change',world,rows)
+    warn=GameConfig(mode='warn',duration=60,vehicle='model3',surprises=False)
+    world,rows=drive(warn,fast,120,lambda world,step:steering(1))
+    check(any(r['as']&64 for r in rows) and world.assists==0 and not any(r['st'] for r in rows) and world.lane>1.5,'Warning-only warns at the line and never steers')
+    off=GameConfig(mode='off',duration=60,vehicle='model3',surprises=False)
+    world,rows=drive(off,fast,120,lambda world,step:steering(1))
+    check(not any(r['as'] or r['st'] or r['bl'] or r['br'] or r['rr'] for r in rows) and world.lane>1.5,'Off mode leaves the wheel alone')
+    # Blind spot: a car overtakes on the right; indicating toward it is refused.
+    def overtaker(world):
+        fast(world);world.cars=[TrafficCar(5,2.,-28.,29.,desired=29.)]
+    world,rows=drive(active,overtaker,180)
+    lit=[i for i,r in enumerate(rows) if r['br']]
+    check(lit and rows[lit[0]]['br']==1 and not any(r['st'] for r in rows),'An overtaker lights the blind spot lamp and nothing moves')
+    report_row('overtaker',world,rows)
+    def alongside(world):
+        fast(world);world.cars=[TrafficCar(5,2.,-3.,25.,desired=25.)];world.indicate(1)
+    world,rows=drive(active,alongside,120,lambda world,step:steering(1))
+    check(any(r['br']==2 for r in rows) and any(r['st']<0 and r['as']&2 for r in rows),'Indicating and steering at a car in the blind spot: red lamp and counter-steering')
+    check(not world.collision,'The car in the blind spot is not hit: '+str(round(world.lane,3)))
+    report_row('blind-spot-block',world,rows)
+    alone=GameConfig(mode='off',duration=60,vehicle='model3',surprises=False)
+    world,rows=drive(alone,alongside,120,lambda world,step:steering(1))
+    check(world.collision,'Without ADAS the same steering hits it')
+    # A car cutting into the flank without looking.
+    def cutter(world):
+        fast(world)
+        car=TrafficCar(5,2.,.5,25.,desired=25.,changes=True,careless=True,signal_lead=.2,change_time=2.2)
+        world.cars=[car];world._start_change(car,1)
+    def holding(world,step):return dict(gas=world.ego<25,brake=False)
+    world,rows=drive(active,cutter,120,holding)
+    check(any(r['as']&2 for r in rows) and any(r['st']<0 for r in rows),'A careless cut-in at the flank: the card steers away')
+    check(not world.collision,'and no contact in this defined test')
+    report_row('flank-cut-in',world,rows)
+    world,rows=drive(off,cutter,120,holding)
+    check(world.collision,'Without ADAS the same cut-in hits the car')
+    # A distracted driver from behind.
+    def tailgater(world):
+        fast(world);world.cars=[TrafficCar(5,1.,-55.,40.,desired=40.,distracted=.6,comfort=3.)]
+    tesla=GameConfig(mode='active',duration=60,vehicle='model3',surprises=False)
+    world,rows=drive(tesla,tailgater,160)
+    check(any(r['rr']==1 for r in rows) and any(r['rr']==2 for r in rows),'A fast follower raises the rear warning, then the threat')
+    check(any(r['as']&4 and r['a']>200 for r in rows),'The card floors the accelerator, past the ACC limit')
+    check(not world.collision,'and the Model 3 gets away in this defined test')
+    report_row('rear-escape-model3',world,rows)
+    world,rows=drive(GameConfig(mode='active',duration=60,vehicle='sahin',surprises=False),tailgater,160)
+    check(any(r['as']&16 for r in rows) and abs(world.lane-1)>.5,'The Şahin cannot outrun it: under 1.2 s the card leaves the lane')
+    check(not world.collision,'and the Şahin avoids it in this defined test')
+    report_row('rear-evade-sahin',world,rows)
+    world,rows=drive(GameConfig(mode='off',duration=60,vehicle='sahin',surprises=False),tailgater,160)
+    check(world.collision,'Without ADAS the same driver hits the car')
+    def blocked(world):
+        fast(world);world.cars=[TrafficCar(5,1.,-55.,40.,desired=40.,distracted=.6,comfort=3.),TrafficCar(6,1.,22.,25.,desired=25.)]
+    world,rows=drive(tesla,blocked,60)
+    check(not any(r['as']&4 for r in rows[:30]) or world.front()[1]>5,'A car close ahead keeps the escape from accelerating into it')
+    report_row('rear-with-car-ahead',world,rows)
     d=device();config=GameConfig(duration=25);world=TrafficWorld(config)
     try:
         def chunk(count,world):
@@ -105,6 +206,7 @@ def main():
         check(d.call('adas_game_touch',2)==0 and d.runtime('J')['state']['gmode']==1,'Card mode selection is locked during a run')
         d.call('adas_game_touch',6);check(not d.runtime('J')['state']['grun'],'Card PAUSE request is visible to the host')
         d.runtime('RESET');d.runtime('G:0:1:6000:4000');d.runtime('H:1');d.sequence=2147483646
+        check(not d.runtime(TrafficWorld(config).surround_command(dict(gas=False,brake=False)))['state']['error'],'Sensor samples fit the real ARM parser')
         import binascii
         body='T:4294967295:6000:6000:100000:15'
         maximum=body+':'+str(binascii.crc_hqx(body.encode(),0xffff))

@@ -32,7 +32,7 @@ class FixtureDevice:
                        lead=int(fields[3]), gap=int(fields[4]), a=0, ttc=-1, gpu=0, frames=0, error='')
         elif command == 'PAUSE':
             old = dict(old, mode='PAUSED', a=0)
-        self.current = dict(app='ADASLab', id=3, version=2, protocol=1, boot=1,
+        self.current = dict(app='ADASLab', id=3, version=3, protocol=1, boot=1,
                             boot_version=2, ready=True, error='', state=old)
         return self.current
     def close(self):
