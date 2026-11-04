@@ -24,7 +24,7 @@ from .protocol import Firmware, ProtocolError
 from .adas_sim import Config, Runner, SCENARIOS
 from .game_sim import (AIR_FULL, GAME_FIRMWARE, LAUNCH_SECONDS, VEHICLES, GameConfig, GameRunner, DriverInput, MODES, MODE_NAMES,
                        TrafficWorld)
-from . import programmer
+from . import programmer, updates
 from .godot_bridge import GodotBridge, find_godot
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,8 +58,14 @@ class StudioController(QObject):
     shutdownReady = Signal()
 
     def __init__(self, parent=None, *, device_factory=None, programmer_api=None,
-                 auto_adas=False, arm_sim=False, start_timers=True):
+                 auto_adas=False, arm_sim=False, start_timers=True, update_feed=None, auto_update_check=False):
         super().__init__(parent)
+        self._feed = update_feed or updates.Feed(ROOT / 'build/updates')
+        self._feed_packages = {}
+        self._feed_thread = None
+        self._feed_quiet = True
+        self._card_slots = None
+        self._feed_time = ''
         self._factory = device_factory or Device
         self._programmer = programmer_api or programmer
         self._auto_adas = auto_adas
@@ -120,6 +126,7 @@ class StudioController(QObject):
             history=[], logs=[], appState='{}',
             duello=dict(gun='—', action='—', ammo=0, targetHp=0, walking=False),
             confirmation=dict(visible=False, title='', message='', action=''),
+            updates=[], updateText='GitHub henüz denetlenmedi', updateChecking=False,
         )
         self._drain_timer = QTimer(self)
         self._drain_timer.setInterval(20)
@@ -128,8 +135,14 @@ class StudioController(QObject):
         self._heartbeat_timer = QTimer(self)
         self._heartbeat_timer.setInterval(350)
         self._heartbeat_timer.timeout.connect(self._heartbeat)
+        self._update_timer = QTimer(self)
+        self._update_timer.setInterval(30 * 60 * 1000)
+        self._update_timer.timeout.connect(self._automatic_update_check)
         if start_timers:
             self._heartbeat_timer.start()
+        if auto_update_check:
+            self._update_timer.start()
+            QTimer.singleShot(0, self._automatic_update_check)
         self.refreshPorts()
 
     @Property('QVariantMap', notify=stateChanged)
@@ -264,6 +277,8 @@ class StudioController(QObject):
                 self._state.update(progress=float(value[0]), progressText=value[1])
             elif kind == 'log':
                 self._log(value)
+            elif kind == 'feed':
+                self._apply_feed(*value)
             else:
                 operation = self._active_operation
                 # The result is enqueued after fn's finally has released UART.
@@ -301,6 +316,7 @@ class StudioController(QObject):
         app = response.get('app', '')
         if not app:
             return
+        changed_app = (app, str(response.get('version', ''))) != (self._state['app'], self._state['appVersion'])
         self._state.update(connected=True, app=app, appVersion=str(response.get('version', '')),
                            connectionText='Bağlı', appState=json.dumps(response.get('state', {}), ensure_ascii=False, indent=2))
         self._game.update(connected=app == 'ADASLab', ready=app == 'ADASLab' and response.get('version', 0) >= GAME_FIRMWARE)
@@ -342,6 +358,8 @@ class StudioController(QObject):
                                    'DeviceBoot': 'firmware'}.get(app, 'console')
             if app == 'ADASLab' and response.get('version', 0) >= 2:
                 self._state['page'] = 'game'
+        if changed_app:
+            self._refresh_updates()
 
     def _panel_response(self, response, *, allow_start=False):
         panel = response.get('state', {})
@@ -410,6 +428,102 @@ class StudioController(QObject):
         self._state.update(connected=False, app='', appVersion='', connectionText='Bağlantı yok',
                            appState='{}', telemetry=empty_telemetry(),
                            duello=dict(gun='—', action='—', ammo=0, targetHp=0, walking=False))
+        self._card_slots = None
+        self._refresh_updates()
+
+    def _running_app(self):
+        app, version = self._state['app'], self._state['appVersion']
+        return (app, int(version)) if app and app != 'DeviceBoot' and version.isdigit() else None
+
+    def _refresh_updates(self):
+        items = updates.rows(self._feed_packages, self._card_slots, self._running_app())
+        self._state['updates'] = items
+        if self._feed_packages:
+            ready = sum(item['canUpdate'] and item['status'] != 'different' for item in items)
+            unsure = sum(item['status'] == 'different' for item in items)
+            summary = (f'{ready} güncelleme hazır' if ready else f'{unsure} farklı derleme var' if unsure
+                       else 'Kart güncel' if self._card_slots is not None else 'Karşılaştırmak için kartı okuyun')
+            self._state['updateText'] = f'{summary} · GitHub denetimi {self._feed_time}'
+
+    @Slot()
+    def _automatic_update_check(self):
+        if not self._state['running']:
+            self._start_update_check(quiet=True)
+
+    @Slot()
+    def checkUpdates(self):
+        self._start_update_check(quiet=False)
+
+    def _start_update_check(self, quiet):
+        if self._closing or self._feed_thread is not None:
+            return
+        self._feed_quiet = quiet
+        def work():
+            try:
+                self._events.put(('feed', (True, *self._feed.check()), None))
+            except Exception as exc:
+                self._events.put(('feed', (False, {}, [str(exc)]), None))
+        self._state.update(updateChecking=True, updateText='GitHub denetleniyor…')
+        self._feed_thread = threading.Thread(target=work, name='studio-update-check', daemon=True)
+        self._feed_thread.start()
+        self._publish()
+
+    def _apply_feed(self, ok, packages, problems):
+        self._feed_thread = None
+        self._state['updateChecking'] = False
+        if ok:
+            before = {item['name'] for item in self._state['updates'] if item['canUpdate'] and item['status'] != 'different'}
+            self._feed_packages = packages
+            self._feed_time = time.strftime('%H:%M')
+            self._refresh_updates()
+            fresh = [item['name'] for item in self._state['updates']
+                     if item['canUpdate'] and item['status'] != 'different' and item['name'] not in before]
+            if fresh:
+                self._message('GitHub’da güncelleme var: ' + ', '.join(fresh) + '. Firmware sayfasından kurabilirsiniz.')
+        else:
+            self._state['updateText'] = problems[0] if self._feed_packages == {} else f'{problems[0]} Son bilinen liste gösteriliyor.'
+        for problem in problems:
+            self._log('Güncelleme denetimi: ' + problem)
+        if problems and not self._feed_quiet:
+            self._state.update(statusMessage=problems[0], statusTone='warning')
+
+    def _firmware_ready(self):
+        if self._arm_sim:
+            self._message('Güncelleme için fiziksel karta bağlanın.', 'warning')
+            return False
+        return self._require_device()
+
+    @Slot()
+    def readCardCatalog(self):
+        if self._defer_if_heartbeat(self.readCardCatalog):
+            return
+        if not self._firmware_ready():
+            return
+        def done(result):
+            self._card_slots = result['slots']
+            self._apply_response(result['response'])
+            self._refresh_updates()
+            self._state.update(statusMessage='Karttaki uygulamalar okundu.', statusTone='success')
+        self._job('catalog', lambda: updates.read_card(self._device), done)
+
+    @Slot(str)
+    def requestUpdate(self, name):
+        if self._defer_if_heartbeat(lambda: self.requestUpdate(name)):
+            return
+        if not self._firmware_ready():
+            return
+        # Same version, other CRC: either side may be the newer build, so it
+        # is only ever replaced by asking for that application by name.
+        chosen = [item for item in self._state['updates'] if item['canUpdate'] and
+                  (item['name'] == name or (not name and item['status'] != 'different'))]
+        if not chosen:
+            self._message('Kurulacak güncelleme yok.')
+            return
+        names = ', '.join(f'{item["name"]} v{item["feedVersion"]}' for item in chosen)
+        unsure = 'Sürüm numarası aynı olduğu için hangisinin daha yeni olduğu bilinemiyor; karttaki derleme silinecek. ' if chosen[0]['status'] == 'different' else ''
+        self._confirm('update', 'Güncelleme kurulsun mu?',
+                      f'{unsure}{names} GitHub’dan karta yazılacak. Kart yeniden başlar ve ekran bir süre kararır; USB bağlantısını kesmeyin. Saat kayıtları korunur.',
+                      [self._feed_packages[item['id']] for item in chosen])
 
     @Slot(str)
     def navigate(self, page):
@@ -585,6 +699,20 @@ class StudioController(QObject):
                                    statusMessage='Firmware yüklendi ve uygulama başlatıldı.', statusTone='success')
                 self._log('Firmware yüklendi: ' + response.get('app', ''))
             self._job('upload', lambda: self._device.upload(payload, progress, self._cancel), done)
+        elif action == 'update':
+            if not self._firmware_ready():
+                return
+            self._state.update(progress=0., progressText='Güncelleme başlıyor…')
+            def progress(percent, message):
+                self._events.put(('progress', (percent, message), None))
+            def done(result):
+                self._card_slots = result['slots']
+                self._apply_response(result['response'])
+                self._refresh_updates()
+                self._state.update(progress=100., progressText='Güncelleme tamamlandı',
+                                   statusMessage='Güncelleme karta yazıldı ve doğrulandı.', statusTone='success')
+                self._log('Güncelleme tamamlandı.')
+            self._job('upload', lambda: updates.apply_updates(self._device, payload, progress, self._cancel), done)
         elif action == 'install':
             def work():
                 if self._device:

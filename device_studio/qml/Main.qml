@@ -278,6 +278,43 @@ ApplicationWindow {
                             }
                         }
                         Panel {
+                            Layout.fillWidth: true; Layout.preferredHeight: 150 + Math.max(1, (window.s.updates || []).length) * 54
+                            ColumnLayout {
+                                anchors.fill: parent; anchors.margins: 24; spacing: 12
+                                RowLayout {
+                                    Layout.fillWidth: true; spacing: 10
+                                    ColumnLayout {
+                                        Layout.fillWidth: true; spacing: 4
+                                        LabelText { text: "GitHub güncellemeleri"; font.pixelSize: 16; font.weight: Font.DemiBold }
+                                        LabelText { text: window.s.updateText || ""; color: "#8fa7b8"; font.pixelSize: 12; Layout.fillWidth: true }
+                                    }
+                                    ActionButton { text: "GitHub’ı denetle"; enabled: !window.s.updateChecking; onClicked: window.studio.checkUpdates() }
+                                    ActionButton { text: "Kartı oku"; enabled: !window.s.busy && window.s.connected; onClicked: window.studio.readCardCatalog() }
+                                    ActionButton {
+                                        text: "Tümünü güncelle"; primary: true
+                                        enabled: !window.s.busy && window.s.connected && (window.s.updates || []).some(function(item) { return item.canUpdate && item.status !== "different" })
+                                        onClicked: window.studio.requestUpdate("")
+                                    }
+                                }
+                                Repeater {
+                                    model: window.s.updates || []
+                                    Rectangle {
+                                        required property var modelData
+                                        Layout.fillWidth: true; Layout.preferredHeight: 46; radius: 8; color: "#0d1924"; border.width: 1; border.color: modelData.canUpdate ? "#63dec2" : "#2b4050"
+                                        RowLayout {
+                                            anchors.fill: parent; anchors.leftMargin: 14; anchors.rightMargin: 8; spacing: 12
+                                            LabelText { text: modelData.name + "  v" + modelData.feedVersion; font.pixelSize: 13; font.weight: Font.DemiBold; Layout.preferredWidth: 160 }
+                                            LabelText { text: modelData.card; color: "#7e98aa"; font.pixelSize: 11; Layout.preferredWidth: 110 }
+                                            LabelText { text: modelData.statusText; color: modelData.canUpdate ? "#63dec2" : "#8fa7b8"; font.pixelSize: 11; Layout.fillWidth: true }
+                                            ActionButton { text: "Güncelle"; visible: modelData.canUpdate; enabled: !window.s.busy && window.s.connected; onClicked: window.studio.requestUpdate(modelData.name) }
+                                        }
+                                    }
+                                }
+                                Item { Layout.fillHeight: true }
+                                LabelText { text: "“Kartı oku” kartı kısa süre bootloader’a geçirir ve uygulama seçme ekranını açar. İlerleme yukarıdaki yükleme çubuğunda görünür."; color: "#728d9f"; font.pixelSize: 11; Layout.fillWidth: true }
+                            }
+                        }
+                        Panel {
                             Layout.fillWidth: true; Layout.preferredHeight: 235
                             ColumnLayout {
                                 anchors.fill: parent; anchors.margins: 24; spacing: 16

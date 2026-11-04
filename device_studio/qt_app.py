@@ -27,7 +27,7 @@ def create_app(*, auto_connect=False, auto_adas=False, arm_sim=False, auto_game3
         QSurfaceFormat.setDefaultFormat(QQuick3D.idealSurfaceFormat())
     app.setApplicationName('ADASLab')
     app.setOrganizationName('ADASLab')
-    bridge = controller or StudioController(app, auto_adas=auto_adas, arm_sim=arm_sim)
+    bridge = controller or StudioController(app, auto_adas=auto_adas, arm_sim=arm_sim, auto_update_check=not arm_sim)
     engine = QQmlApplicationEngine()
     engine.setInitialProperties({'studio': bridge})
     engine.load(QUrl.fromLocalFile(str(QML_MAIN)))
