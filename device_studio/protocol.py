@@ -17,8 +17,14 @@ BOARD='STM32U5A9J-DK'
 APP_ID_MAX=0xFFFFFFFE
 BUILTIN_APPS={1:'Smartwatch',2:'Duello'}
 HELLO,BEGIN,DATA,FINISH,RUN,STATUS,ABORT=range(1,8)
+CATALOG,STORE_BEGIN,STORE_DATA,STORE_FINISH,INSTALL=range(8,13)
 
 class ProtocolError(Exception): pass
+
+class BootStatusError(ProtocolError):
+    def __init__(self,status):
+        super().__init__(f'Bootloader hata kodu: {status}')
+        self.status=status
 
 def validate_identity(app_id,name,version):
     if type(app_id) is not int or not 1<=app_id<=APP_ID_MAX:

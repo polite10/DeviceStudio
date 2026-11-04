@@ -60,7 +60,7 @@ class Device:
                 if rseq!=seq or cmd!=(command|0x80000000): continue
                 if len(data)<4: raise ProtocolError('Eksik bootloader cevabi')
                 status=struct.unpack_from('<I',data)[0]
-                if status: raise ProtocolError(f'Bootloader hata kodu: {status}')
+                if status: raise BootStatusError(status)
                 try: response=json.loads(data[4:])
                 except ValueError as exc: raise ProtocolError('Bootloader cevabi okunamadi') from exc
                 if not isinstance(response,dict): raise ProtocolError('Gecersiz bootloader cevabi')
@@ -95,8 +95,10 @@ class Device:
         return self.current
     def run(self):
         self.boot(RUN)
+        return self.wait_runtime()
+    def wait_runtime(self,seconds=12):
         self.port.baudrate=RUNTIME_BAUD
-        end=time.monotonic()+12
+        end=time.monotonic()+seconds
         while time.monotonic()<end:
             try: return self.runtime('HELLO',timeout=.8)
             except TimeoutError: time.sleep(.15)

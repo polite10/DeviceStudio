@@ -141,6 +141,18 @@ ST-LINK işlemleri için STM32CubeProgrammer gerekir. Windows ve macOS CubeIDE i
 
 Port örneğini kendi portunuzla değiştirin; Windows'ta örneğin `COM5` olabilir. CLI ile çalışırken Studio bağlantısını kapatın.
 
+## GitHub'dan güncelleme
+
+Kartta ağ bağlantısı olmadığı için GitHub'ı Studio denetler. Kaynak, public `polite10/DeviceStudio` deposunun `main` dalındaki `Firmware/*.dfw` paketleridir; token gerekmez. Studio açılışta ve 30 dakikada bir denetler, sonuç **Firmware** sayfasındaki **GitHub güncellemeleri** bölümünde görünür.
+
+**Yayınlamak:** `python3 AppManager/tools/build_catalog.py` paketleri üretip `DeviceStudio/Firmware` içine kopyalar. Ardından `DeviceStudio` deposundaki paketleri `main` dalına gönderin. Yalnız uygulamanın kendi deposuna kaynak göndermek güncelleme göstermez.
+
+**Kurmak:** Çalışan uygulamanın sürümü bağlanınca kendiliğinden karşılaştırılır. Tüm uygulamalar için **Kartı oku**, sonra **Güncelle** veya **Tümünü güncelle** seçin. Karşılaştırma sürüm ve CRC32 iledir: sürüm numarası değişmeden yayınlanan derleme **GitHub'da farklı derleme** olarak görünür. Bu durumda hangisinin daha yeni olduğu bilinemediği için **Tümünü güncelle** onu atlar; yalnız kendi **Güncelle** düğmesiyle ve uyarılı onayla yazılır. Karttaki daha yüksek sürüm geriye alınmaz.
+
+Yeni görüntü boş NOR yuvasına yazılır, kartta doğrulanır, eski kopya ancak ondan sonra silinir; kesilen güncellemede eski kopya seçilebilir kalır. Boş yuva yoksa (yedi yuva dolu) aynı yuvanın üzerine yazılır ve bu koruma olmaz. Güncellenen uygulama o an çalışıyorsa hemen kurulur; diğerleri uygulama seçme ekranında seçilince kurulur. Yuva değişebildiği için menüdeki sıra değişebilir.
+
+Paketler SHA-1 (Git blob), SHA-256 ve CRC32 ile bütünlük için doğrulanır; dijital imza yoktur, depoya yazabilen herkes karta firmware gönderebilir. DeviceBoot'un kendisi bu yolla güncellenmez, ST-LINK gerekir. Studio kapalıyken denetim yapılmaz.
+
 ## Düello ve genel komutlar
 
 Düello sayfasında **Silahı çıkar**, **Ateş et**, **Silahı yerine koy**, **Yeniden doldur**, **Yürü**, **Dur** ve **Sahneyi sıfırla** kontrolleri vardır. Silah, eylem, mermi ve hedef durumu karttan okunur. Animasyon sırasında firmware meşgul cevabı verebilir. Beş saniye komut/heartbeat gelmezse yürüme durur. Çizimler cihazda yapılır; PC video/piksel akışı göndermez.
